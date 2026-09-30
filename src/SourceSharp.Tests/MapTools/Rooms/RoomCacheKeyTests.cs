@@ -169,6 +169,24 @@ public sealed class RoomCacheKeyTests
         Assert.NotEqual(Key(room), Key(room with { Role = RoomRole.Up }));
     }
 
+    /// <summary>
+    /// The room's water sockets are inputs (its compile is held to them and
+    /// describes them): declaring one, its level and its material each change
+    /// the key; a room without them keeps the key it had before them.
+    /// </summary>
+    [Fact]
+    public void TheWaterSocketsChangeTheKey()
+    {
+        LibraryRoom room = Split(Library())[0];
+        string key = Key(room);
+        Assert.Equal(key, Key(room with { WaterSockets = new Dictionary<string, RoomWaterSocket>() }));
+        string wet = Key(room with { WaterSockets = new Dictionary<string, RoomWaterSocket> { ["east"] = new(64, "unit/water") } });
+        Assert.NotEqual(key, wet);
+        Assert.NotEqual(wet, Key(room with { WaterSockets = new Dictionary<string, RoomWaterSocket> { ["east"] = new(72, "unit/water") } }));
+        Assert.NotEqual(wet, Key(room with { WaterSockets = new Dictionary<string, RoomWaterSocket> { ["east"] = new(64, "unit/other") } }));
+        Assert.NotEqual(wet, Key(room with { WaterSockets = new Dictionary<string, RoomWaterSocket> { ["west"] = new(64, "unit/water") } }));
+    }
+
     // ---- edits the room never sees -------------------------------------------
 
     /// <summary>

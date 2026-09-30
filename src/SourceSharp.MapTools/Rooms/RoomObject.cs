@@ -255,6 +255,23 @@ public sealed record RoomObject(
     internal RoomAreaPortals? AreaPortalsOfCompile => AreaPortals is { } portals && portals.IsFor(this) ? portals : null;
 
     /// <summary>
+    /// The room's water as the link carries it (<see cref="RoomWater"/>: its
+    /// water data counted, its fluids' convexes and water overlays at each
+    /// quarter turn), or null: made by the room compile for a room whose
+    /// compile has water, and stored by the pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Overlays"/>, not only a shortcut: it is what says the
+    /// room was held to the pack's water rules when it was compiled, so a
+    /// room whose compile has water and none of this bound to it
+    /// (<see cref="WaterOfCompile"/>) is refused by the link, naming the room.
+    /// </remarks>
+    internal RoomWater? Water { get; init; }
+
+    /// <summary>The room's water while it describes this compile, else null.</summary>
+    internal RoomWater? WaterOfCompile => Water is { } water && water.IsFor(this) ? water : null;
+
+    /// <summary>
     /// The room's part of its level's map (<see cref="RoomMapView"/>: its
     /// floors, doors and markers, room-local), or null: made by the library
     /// compile from the room's compile and VMF, and stored by the pack in its

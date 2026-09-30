@@ -134,6 +134,16 @@ public sealed record VradContext
     internal int FrameTurns { get; init; }
 
     /// <summary>
+    /// For a room library's bake: the library's 3D skybox, which the room's
+    /// sky rays are recast into as vrad of a level recasts them
+    /// (<see cref="VradSkybox"/>): its casters join the tracer this run
+    /// builds, its cameras the map's. Null in every other compile. A host
+    /// that supplies its own <see cref="Tracer"/> must have put the skybox's
+    /// casters in it.
+    /// </summary>
+    internal VradSkybox? Skybox { get; init; }
+
+    /// <summary>
     /// For a room library's bake: told each pass's static prop lighting
     /// (the HDR flag, then the result) before its files go into the pak, so
     /// the bake can keep the linear colours the files are encoded from.

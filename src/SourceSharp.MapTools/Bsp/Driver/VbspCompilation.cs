@@ -233,6 +233,20 @@ internal sealed class VbspCompilation
                 .ConfigureAwait(false);
         }
 
+        // No model at all: every entity, the world included, had no brushes.
+        // EndBSPFile starts by bounding model 0, which does not exist, so the
+        // map is refused here with a message rather than failing there with
+        // an index error that reads as a compiler bug (and that a room
+        // library would take for the whole run's failure, not one map's).
+        // Checked on the models written, not on worldspawn's brush count, so
+        // an empty world beside a brush entity compiles as it always has.
+        if (_state.Models.Count == 0)
+        {
+            throw new MapCompileException(
+                WriteCodes.NoBrushes,
+                "the map has no brushes: worldspawn and every brush entity are empty, so there is no world model to build.");
+        }
+
         // Turn the skybox into a cubemap in case we don't build env_cubemap textures.
         await RunExtensionsAsync(VbspExtensionPoint.DefaultCubemaps, cancellationToken).ConfigureAwait(false);
 

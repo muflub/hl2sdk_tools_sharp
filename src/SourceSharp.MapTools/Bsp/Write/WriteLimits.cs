@@ -78,6 +78,20 @@ public static class WriteCodes
     public const string BadSurfaceExtents = "VBSP0613";
 
     /// <summary>
+    /// <c>ProcessModels</c> wrote no model: worldspawn and every brush entity
+    /// have no brushes, so there is no world model for <c>EndBSPFile</c> to
+    /// bound, and nothing a loader could open.
+    /// </summary>
+    /// <remarks>
+    /// The reference implementation has no check here: it skips every entity
+    /// without brushes, the world included, and goes on to bound a world
+    /// model it never wrote. There is no map to match, so refusing it with a
+    /// message changes no output, and no map that compiles is affected (an empty worldspawn beside a brush entity still
+    /// writes that entity as model 0, as the reference does).
+    /// </remarks>
+    public const string NoBrushes = "VBSP0614";
+
+    /// <summary>
     /// An invariant of the write stage failed (odd node plane, bad leaf face,
     /// a displacement with no base face): a compiler bug, not a map error.
     /// </summary>

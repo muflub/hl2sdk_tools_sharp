@@ -164,6 +164,11 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // before area portals were carried.
         IReadOnlyList<RoomPackSectionData> areaPortals = room.AreaPortalsOfCompile is { } portals ? [portals.ToSection()] : [];
 
+        // The water likewise, for a room whose compile has any. A room
+        // without it gets no section, so its entry is what it was before
+        // water was carried.
+        IReadOnlyList<RoomPackSectionData> water = room.WaterOfCompile is { } carriedWater ? [carriedWater.ToSection()] : [];
+
         // The room's part of the level map (MAPV, the rooms design, 18.3):
         // every placement reads it, whatever its turn (it is stored once and
         // turned at link). A room compiled without it (a room built outside
@@ -172,7 +177,7 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         IReadOnlyList<RoomPackSectionData> mapView = room.MapViewOfCompile is { } view ? [view.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. shape, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. mapView, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. shape, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. water, .. mapView, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -341,7 +346,9 @@ public sealed class RoomPackIndex
 /// (<c>OVLY</c>: every record's origin and basis at all four turns,
 /// <c>RoomOverlays</c>), when its compile has area portals its areas and
 /// portals (<c>APRT</c>: the clip vertices at all four turns and the portal
-/// numbers, <c>RoomAreaPortals</c>), and the link work done ahead for it
+/// numbers, <c>RoomAreaPortals</c>), when its compile has water its water
+/// (<c>WATR</c>: the water data counted, the fluids' convexes and the water
+/// overlays at all four turns, <c>RoomWater</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
 /// then per quarter turn <i>r</i> its turned geometry
@@ -962,6 +969,11 @@ public static class RoomPack
                 wanted.Add((name, areaPortals));
             }
 
+            if (entry.Find(RoomWater.SectionTag) is { } water)
+            {
+                wanted.Add((name, water));
+            }
+
             // The room's map: a few hundred bytes every link reads with the
             // room, whether or not it writes a .map2d (the room is loaded
             // whole, as the combiner and the cache hand it on).
@@ -1078,10 +1090,11 @@ public static class RoomPack
             RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
             RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
             RoomAreaPortals? areaPortals = RoomAreaPortals.Read(Section(name, RoomAreaPortals.SectionTag), name, room.Bsp);
+            RoomWater? water = RoomWater.Read(Section(name, RoomWater.SectionTag), name, room.Bsp);
             RoomMapView? mapView = RoomMapView.Read(Section(name, RoomMapView.SectionTag), room.Definition, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
                 && cubemaps is null && overlays is null
-                && lighting is null && doorLight is null && areaPortals is null && mapView is null
+                && lighting is null && doorLight is null && areaPortals is null && water is null && mapView is null
                 ? room
                 : room with
                 {
@@ -1091,6 +1104,7 @@ public static class RoomPack
                     Lighting = lighting,
                     DoorLight = doorLight,
                     AreaPortals = areaPortals,
+                    Water = water,
                     MapView = mapView,
                 };
         }
@@ -1598,6 +1612,7 @@ public static class RoomPack
         ((byte)'D', (byte)'L', (byte)'I', (byte)'T') => RoomDoorLight.SectionTag,
         ((byte)'A', (byte)'P', (byte)'R', (byte)'T') => RoomAreaPortals.SectionTag,
         ((byte)'S', (byte)'H', (byte)'A', (byte)'P') => RoomShape.SectionTag,
+        ((byte)'W', (byte)'A', (byte)'T', (byte)'R') => RoomWater.SectionTag,
         ((byte)'M', (byte)'A', (byte)'P', (byte)'V') => RoomMapView.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),

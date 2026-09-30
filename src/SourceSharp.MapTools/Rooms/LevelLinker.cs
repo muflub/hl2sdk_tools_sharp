@@ -84,8 +84,8 @@ namespace SourceSharp.MapTools.Rooms;
 /// other side), in which every cluster of a level sees every other.
 /// </para>
 /// <para>
-/// A room whose compile left anything outside the relocation set — a water
-/// leaf, displacements, detail props — is refused rather than silently
+/// A room whose compile left anything outside the relocation set —
+/// displacements, detail props — is refused rather than silently
 /// dropped: the linked map must be the rooms, not an approximation of them.
 /// </para>
 /// <para>
@@ -126,8 +126,19 @@ namespace SourceSharp.MapTools.Rooms;
 /// <b>Overlays</b> are carried: every placed room's <c>info_overlay</c>
 /// records in link order, each moved and turned with its room, its id,
 /// texinfo and faces rebased, a named one's accessor renumbered to match
-/// (<see cref="LinkOverlays"/>, <see cref="RoomOverlays"/>). Water overlays
-/// are refused with water.
+/// (<see cref="LinkOverlays"/>, <see cref="RoomOverlays"/>).
+/// </para>
+/// <para>
+/// <b>Water</b> is carried: every placed room's water data merged as vbsp
+/// merges a map's, its leaves' and faces' references renumbered, its fluids
+/// moved into the level's collision, its water overlays rebased and moved,
+/// and vvis's water passes run again over the level's visibility
+/// (<see cref="PlanWaterData"/>, <see cref="RoomWater"/>). Water that
+/// reaches a door plug is refused when the room is packed, unless the room
+/// declares that socket's water: then a joint of two such sockets at one
+/// level (<see cref="LevelWaterJoints"/>) has its doorway's water carved
+/// (<see cref="CarveWater"/>), a surface, a brush and a fluid convex with it,
+/// and the water records it joins made one.
 /// </para>
 /// </remarks>
 public static partial class LevelLinker
@@ -160,9 +171,11 @@ public static partial class LevelLinker
     /// <see cref="BspLump.Overlays"/> and <see cref="BspLump.OverlayFades"/>
     /// are rebuilt for the level from the rooms' (<see cref="LinkOverlays"/>),
     /// when the room's compile left its overlay data with it
-    /// (<see cref="RoomOverlaysOf"/>); <see cref="BspLump.WaterOverlays"/>
-    /// is not in the set: water overlays are drawn along water, which is
-    /// refused.
+    /// (<see cref="RoomOverlaysOf"/>).
+    /// <see cref="BspLump.LeafWaterData"/> and <see cref="BspLump.WaterOverlays"/>
+    /// are rebuilt for the level from the rooms' (<see cref="PlanWaterData"/>,
+    /// <see cref="LinkWaterOverlays"/>) when the room's compile left its
+    /// water data with it (<see cref="RoomWaterOf"/>).
     /// </remarks>
     private static readonly ImmutableHashSet<BspLump> CarriedLumps =
         ImmutableHashSet.CreateRange([
@@ -179,6 +192,7 @@ public static partial class LevelLinker
         BspLump.Occlusion, BspLump.PakFile, BspLump.MapFlags, BspLump.Cubemaps,
         BspLump.PhysCollide, BspLump.PhysDisp,
         BspLump.Overlays, BspLump.OverlayFades,
+        BspLump.LeafWaterData, BspLump.WaterOverlays,
         ]);
 
     /// <summary>Links <paramref name="layout"/>'s rooms into one map.</summary>
@@ -270,6 +284,32 @@ public static partial class LevelLinker
         RoomLinter.CheckLayout(layout, library);
         LevelEntityReport entities = CheckCapacity(layout, library, options, context.MapBase);
         ValidateJoints(layout, library);
+
+        // Water through a door (the rooms design, 4.6): the two sides of every
+        // joint are dry, or water at one level.
+        Dictionary<string, RoomObject> placedRooms = new(StringComparer.Ordinal);
+        foreach (RoomInstance instance in layout.Rooms)
+        {
+            placedRooms.TryAdd(instance.Placement.Room, library.Get(instance.Placement.Room));
+        }
+
+        Dictionary<string, RoomWater?> waterOf = new(StringComparer.Ordinal);
+        RoomWater? WaterOf(string room)
+        {
+            if (!waterOf.TryGetValue(room, out RoomWater? water))
+            {
+                waterOf[room] = water = RoomWaterOf(placedRooms[room]);
+            }
+
+            return water;
+        }
+
+        LevelWaterJoints.Check(
+            layout,
+            name => placedRooms[name].Definition,
+            (p, socket) => WaterOf(layout.Rooms[p].Placement.Room) is { } water
+                ? water.LevelAt(SocketIndex(placedRooms[layout.Rooms[p].Placement.Room].Definition, socket))
+                : null);
         RoomLinter.CheckReachable(layout, name => library.Get(name).Definition);
 
         // The library's skybox room, when it has one, placed below the grid
@@ -396,7 +436,10 @@ public static partial class LevelLinker
                 cancellationToken).ConfigureAwait(false);
         }
 
-        AssignBases(plans);
+        // The water doorways' surface faces go after every world face and
+        // before the brush models', so they are counted before the bases.
+        int doorwayFaces = CountWaterDoorwayFaces(plans);
+        AssignBases(plans, doorwayFaces);
 
         // The level's areas: every placement's own joined at its joints,
         // numbered for the level, and the portal numbers based. Null for a
@@ -439,9 +482,12 @@ public static partial class LevelLinker
         List<(int Placement, string ClassName)> droppedFurniture = [];
         LevelLightStyles styles = new();
         List<(int Leaf, int Placement, int Cluster)> doorways = [];
+        List<DoorwayWaterFace> waterFaces = [];
         (BspData linked, int foldedBrushes) = Assemble(
             plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, mergedPak,
-            cubemaps, droppedFurniture, styles, doorways, areas, areaWarnings, cancellationToken);
+            cubemaps, droppedFurniture, styles, doorways, areas, areaWarnings, doorwayFaces, waterFaces, cancellationToken);
+        // vvis's water passes over the level's rows, for a level with water.
+        RecomputeWaterSight(linked, pvs, rowBytes, clusterCount, cancellationToken);
         if (props is not null)
         {
             await WritePropsAsync(linked, props, plans, cancellationToken).ConfigureAwait(false);
@@ -449,7 +495,7 @@ public static partial class LevelLinker
 
         if (lit is not null)
         {
-            WriteLighting(linked, plans, lit, lightBlocks!, doorways, styles, pvs, rowBytes, door, lightingWarnings);
+            WriteLighting(linked, plans, lit, lightBlocks!, doorways, styles, pvs, rowBytes, door, lightingWarnings, waterFaces);
         }
 
         // The budget checked before planning counted the rooms as compiled.
@@ -607,7 +653,7 @@ public static partial class LevelLinker
     /// content when the assembly builds them (<see cref="LinkPlanes"/>,
     /// <see cref="LinkTextures"/>), and checked there.
     /// </remarks>
-    private static void AssignBases(RoomPlan[] plans)
+    private static void AssignBases(RoomPlan[] plans, int doorwayFaces)
     {
         long vertices = 0, edges = 0, surfEdges = 0,
              faces = 0, origFaces = 0, brushes = 0, leafFaces = 0,
@@ -615,9 +661,10 @@ public static partial class LevelLinker
              primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
              occluders = 0, occluderPolys = 0, occluderVerts = 0, overlays = 0;
 
-        // The world faces of every placement come first, then every kept
-        // brush model's, as a map's own model 0 range is its first faces.
-        long modelFaces = plans.Sum(p => (long)p.WorldFaceCount);
+        // The world faces of every placement come first, then the water
+        // doorways' surfaces (model 0's too), then every kept brush model's,
+        // as a map's own model 0 range is its first faces.
+        long modelFaces = plans.Sum(p => (long)p.WorldFaceCount) + doorwayFaces;
         foreach (RoomPlan plan in plans)
         {
             if (plan.Models is not { } models)

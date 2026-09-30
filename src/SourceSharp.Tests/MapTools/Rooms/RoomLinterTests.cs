@@ -159,6 +159,58 @@ public class RoomLinterTests
     }
 
     /// <summary>
+    /// A room with no brushes at all is refused by the model check, before
+    /// the compile, with the room named. Before the check its vbsp threw an
+    /// <see cref="ArgumentOutOfRangeException"/> from the world bounds.
+    /// </summary>
+    [Fact]
+    public async Task ARoomWithNoBrushesIsRefusedBeforeTheCompile()
+    {
+        RoomDefinition room = RoomHarness.Room("void");
+        VmfDocument document = new();
+        VmfChunk world = new(MapFileLoader.WorldChunk);
+        world.AddKey("id", "1");
+        world.AddKey("classname", "worldspawn");
+        document.Chunks.Add(world);
+
+        VbspContext context = await RoomHarness.ContextAsync();
+        RoomLintException error = await Assert.ThrowsAsync<RoomLintException>(
+            () => RoomCompiler.CompileAsync(document, room, context, default));
+
+        Assert.Equal(
+            "rule 2 (ShellSealedExceptAtSockets): room void has no world brushes; a room is a shell of world brushes"
+            + " around its cell, and a compile of none has no world to build.",
+            error.Message);
+    }
+
+    /// <summary>
+    /// A room whose only brushes belong to a brush entity is refused the same
+    /// way: vbsp would compile it with the brush entity as model 0, which is
+    /// no shell and not a room the link can place.
+    /// </summary>
+    [Fact]
+    public async Task ARoomWhoseOnlyBrushesAreABrushEntitysIsRefused()
+    {
+        RoomDefinition room = RoomHarness.Room("props");
+        VmfDocument document = new();
+        VmfChunk world = new(MapFileLoader.WorldChunk);
+        world.AddKey("id", "1");
+        world.AddKey("classname", "worldspawn");
+        document.Chunks.Add(world);
+        VmfChunk brush = new(MapFileLoader.EntityChunk);
+        brush.AddKey("id", "2");
+        brush.AddKey("classname", "func_brush");
+        brush.Children.Add(RoomModel.Slab(RoomHarness.Plain, new Vec3(64, 64, 16), new Vec3(96, 96, 48), 3));
+        document.Chunks.Add(brush);
+
+        MapFile map = await MapFileLoader.LoadAsync(await RoomHarness.ContextAsync(), document, CancellationToken.None);
+        MapFileReader.TakeBounds(map);
+
+        RoomLintException error = Assert.Throws<RoomLintException>(() => RoomLinter.CheckModel(room, map));
+        Assert.StartsWith("rule 2 (ShellSealedExceptAtSockets): room props has no world brushes;", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Only solid world brushes can be plugs: a player clip with one
     /// trigger-surfaced side (a world brush with a trigger side that is not
     /// solid) and a trigger brush of a brush entity are not checked against

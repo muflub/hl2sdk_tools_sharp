@@ -181,6 +181,18 @@ public static class RoomCacheKey
 
         fold.Int((int)room.Role);
 
+        // The water sockets, only when the room declares any, so the digest
+        // of every room without them is what it was before them.
+        if (room.WaterSockets.Count > 0)
+        {
+            foreach ((string socket, RoomWaterSocket water) in room.WaterSockets.OrderBy(w => w.Key, StringComparer.Ordinal))
+            {
+                fold.Text("water/" + socket);
+                fold.Float(water.Level);
+                fold.Text(water.Material);
+            }
+        }
+
         // The room's label on the level map (18.1), from its info_room like
         // the claims above and so not in the document: folded only when the
         // room has one, so a room without keeps its key and its row.

@@ -24,6 +24,28 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// </summary>
 public sealed class RoomPackNamespacesTests
 {
+    /// <summary>
+    /// A lit pack's singletons fold in the skybox its sky rooms are baked
+    /// over: without a skybox the digest is the singletons' own; with one it
+    /// is another, and the same for the same skybox content and another for
+    /// an edited skybox.
+    /// </summary>
+    [Fact]
+    public void ALitPacksSingletonsHoldTheSkyboxsContent()
+    {
+        string singletons = new('a', 64);
+        LibraryRoom a = RoomLibraryVmf.SplitLibrary(SkyboxLitFixture.Library).Skybox!;
+        LibraryRoom a2 = RoomLibraryVmf.SplitLibrary(SkyboxLitFixture.Make(SkyboxLitFixture.Overhang)).Skybox!;
+        LibraryRoom b = RoomLibraryVmf.SplitLibrary(SkyboxLitFixture.Make(null)).Skybox!;
+        Assert.Same(singletons, RoomPackNamespaces.LitSingletonDigest(singletons, null));
+        string withA = RoomPackNamespaces.LitSingletonDigest(singletons, a);
+        Assert.Equal(64, withA.Length);
+        Assert.NotEqual(singletons, withA);
+        Assert.Equal(withA, RoomPackNamespaces.LitSingletonDigest(singletons, a2));
+        Assert.NotEqual(withA, RoomPackNamespaces.LitSingletonDigest(singletons, b));
+        Assert.NotEqual(withA, RoomPackNamespaces.LitSingletonDigest(new string('b', 64), a));
+    }
+
     private static readonly string VmfA = RoomPackNamespaces.Digest("a"u8);
 
     private static readonly string VmfB = RoomPackNamespaces.Digest("b"u8);
