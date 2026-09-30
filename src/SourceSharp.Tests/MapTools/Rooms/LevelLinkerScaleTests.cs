@@ -143,7 +143,7 @@ public sealed class LevelLinkerScaleTests
 
         LevelLayout over = Line(library, (int)crossing);
         LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(over, library, noFold));
-        Assert.StartsWith($"room hub at cell ({crossing - 1}, 0) pushes the link to ", refused.Message, StringComparison.Ordinal);
+        Assert.StartsWith($"room hub at cell ({(crossing - 1) % LineRow}, {(crossing - 1) / LineRow}) pushes the link to ", refused.Message, StringComparison.Ordinal);
         Assert.Contains($" {what}; the ", refused.Message, StringComparison.Ordinal);
     }
 
@@ -236,13 +236,27 @@ public sealed class LevelLinkerScaleTests
     }
 
     /// <summary>A line of hubs along +x, jointed end to end.</summary>
+    /// <summary>
+    /// A line of hubs, each joined to the next, folded into rows of
+    /// <see cref="LineRow"/>: the joints are the line's, which is all the
+    /// capacity count reads of a placement besides its room, and the rows
+    /// keep every placement within the engine's coordinates, which the
+    /// capacity check refuses to pass (the rooms design, 17.6).
+    /// </summary>
     private static LevelLayout Line(RoomLibrary library, int length)
     {
         LevelCell?[] cells = new LevelCell?[length];
         Array.Fill(cells, new LevelCell("hub", 0));
-        return new LevelGrid("line", "rooms.vmf", 1, length, cells)
+        LevelLayout line = new LevelGrid("line", "rooms.vmf", 1, length, cells)
             .ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
+        return line with
+        {
+            Rooms = [.. line.Rooms.Select((r, i) => r with { Placement = r.Placement with { CellX = i % LineRow, CellY = i / LineRow } })],
+        };
     }
+
+    /// <summary>How many hubs a line's row holds: 64 cells of 256 reach 16,384, the engine's limit.</summary>
+    private const int LineRow = 64;
 
     // ---- the visibility closure --------------------------------------------
 

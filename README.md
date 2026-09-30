@@ -511,8 +511,9 @@ at the cell's low corner (least x, y and z). Its keys:
 | Key | Meaning |
 | --- | --- |
 | `name` | The room's name: letters, digits, `_`, `-` and `.`, starting with a letter, digit or `_`. It names the room in the pack and is what a level calls the room. |
-| `cell_size` | The cell's edge; the cell is a cube. |
-| `door_width`, `door_height` | The door opening, centred on a wall. |
+| `cell_size` | The cell's edge: the grid every room stands on, and a room's height unless it gives its own. |
+| `room_height` | Optional: the room's own height in whole units, taller or lower than the cell. Its doors stay where a cube room's are, on the floor; it must fit them (`door_height + 2 x wall_depth` at least), stay within 16384 and, when the library builds navigation, be a whole number of voxels, 255 at most. |
+| `door_width`, `door_height` | The door opening, centred on a wall of a cube room. |
 | `wall_depth` | The shell's thickness, and how deep a door plug reaches in from the cell face. |
 | `socket_east`, `socket_west`, `socket_north`, `socket_south` | Optional names for the sockets; the default is the wall's name. East is +x, north is +y. |
 
@@ -548,7 +549,11 @@ format version 3, which promises that every room was checked against the
 library's singletons when it was built and that every room's pak holds what
 vbsp packed for it, the default cubemaps built from the library's sky
 included; an older pack is refused with a message to recompile the library
-with `ssmap room`.
+with `ssmap room`. A library holding a room with a `room_height` of its own
+packs at version 5, which an older build refuses rather than link the room
+as a cube; a library of cube rooms packs as before. A level placing such a
+room gets a `.nav3d` of version 3, which records each cell's height; a
+level of cube rooms keeps version 2.
 
 A **level** is a YAML file:
 
