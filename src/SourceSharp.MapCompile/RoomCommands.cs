@@ -1210,7 +1210,7 @@ public static partial class RoomCommands
 
         await output.WriteAsync(counts is null
             ? DescribeLibrary(rooms)
-            : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names, counts.LibraryEntities, counts.Lighting)).ConfigureAwait(false);
+            : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names, counts.LibraryEntities, counts.Lighting, counts.Features)).ConfigureAwait(false);
         return Program.ExitSuccess;
     }
 
@@ -1401,6 +1401,60 @@ public static partial class RoomCommands
         return Describe(rooms, counts, options, table, names, libraryEntities, lighting);
     }
 
+    /// <summary>
+    /// The listing <c>ssmap rooms</c> prints from a pack that carries rooms'
+    /// displacements, water and level maps: the lit listing, and after each
+    /// room's lighting line what those sections say, one line each and only
+    /// for a room that has the section, so a pack without them lists as it
+    /// did.
+    /// </summary>
+    /// <param name="rooms">The library's rooms.</param>
+    /// <param name="counts">The rooms' entity counts from the pack.</param>
+    /// <param name="options">The library's settings from the pack.</param>
+    /// <param name="table">The class table.</param>
+    /// <param name="names">The rooms' names from the pack.</param>
+    /// <param name="libraryEntities">The library-wide entities from the pack.</param>
+    /// <param name="lighting">Per lit room, its lighting's rotation count.</param>
+    /// <param name="features">Per room, its displacement, water and map sections (<see cref="RoomPack.ReadFeatureSummariesAsync"/>).</param>
+    /// <returns>The listing.</returns>
+    /// <remarks>
+    /// <para>
+    /// The lines read <c>displacements: {n}</c> (a room with a
+    /// <c>DISP</c> section), <c>water: {n} volume(s)</c> (a room with a
+    /// <c>WATR</c> section: its connected bodies of water), and <c>map: {r}
+    /// floor ring(s), {m} marker(s)</c> with <c>, label "{label}"</c> when
+    /// its <c>info_room</c> gives one (a room with a <c>MAPV</c> section: the
+    /// rings of its floor polygons, outer rings and holes, as the level map
+    /// file counts them, and its authors' markers). A room whose map has no
+    /// floor reads <c>map: no walkable floor, {m} marker(s)</c>, the pack
+    /// time warning's point in the listing.
+    /// </para>
+    /// <para>
+    /// Every room a current build packs has a map, so its listing gains the
+    /// map line; a room of a pack written before the map (or with a cell
+    /// size that is not whole units) has none and lists as before.
+    /// </para>
+    /// </remarks>
+    public static string DescribeLibrary(
+        IReadOnlyList<LibraryRoom> rooms,
+        IReadOnlyDictionary<string, RoomEntityCounts?> counts,
+        RoomLibraryOptions options,
+        EntityClassTable table,
+        IReadOnlyDictionary<string, RoomNameSummary> names,
+        IReadOnlyList<VmfChunk> libraryEntities,
+        IReadOnlyDictionary<string, int> lighting,
+        IReadOnlyDictionary<string, RoomFeatureSummary> features)
+    {
+        ArgumentNullException.ThrowIfNull(counts);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(names);
+        ArgumentNullException.ThrowIfNull(libraryEntities);
+        ArgumentNullException.ThrowIfNull(lighting);
+        ArgumentNullException.ThrowIfNull(features);
+        return Describe(rooms, counts, options, table, names, libraryEntities, lighting, features);
+    }
+
     private static string Describe(
         IReadOnlyList<LibraryRoom> rooms,
         IReadOnlyDictionary<string, RoomEntityCounts?>? counts,
@@ -1408,7 +1462,8 @@ public static partial class RoomCommands
         EntityClassTable? table,
         IReadOnlyDictionary<string, RoomNameSummary>? names = null,
         IReadOnlyList<VmfChunk>? libraryEntities = null,
-        IReadOnlyDictionary<string, int>? lighting = null)
+        IReadOnlyDictionary<string, int>? lighting = null,
+        IReadOnlyDictionary<string, RoomFeatureSummary>? features = null)
     {
         ArgumentNullException.ThrowIfNull(rooms);
 
@@ -1462,6 +1517,11 @@ public static partial class RoomCommands
                     : string.Create(CultureInfo.InvariantCulture, $"  lighting: {turns} turns, sun or sky reaches it\n"));
             }
 
+            if (features?.GetValueOrDefault(definition.Name) is { } feature)
+            {
+                text.Append(FeatureLines(feature));
+            }
+
             foreach (RoomSocket socket in definition.Sockets)
             {
                 Box plug = RoomLinter.SealBox(definition, socket, cell);
@@ -1473,6 +1533,30 @@ public static partial class RoomCommands
                     $"  {name}: ({Num(mins)}) to ({Num(maxs)}), "
                     + $"{Num(definition.Kit.Width)} wide x {Num(definition.Kit.Height)} high x {Num(definition.Kit.Depth)} deep\n");
             }
+        }
+
+        return text.ToString();
+    }
+
+    /// <summary>A room's displacement, water and map lines for <c>ssmap rooms</c>, each only when the room has the section.</summary>
+    private static string FeatureLines(RoomFeatureSummary feature)
+    {
+        StringBuilder text = new();
+        if (feature.Displacements > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"  displacements: {feature.Displacements}\n");
+        }
+
+        if (feature.WaterVolumes is int volumes)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"  water: {volumes} volume(s)\n");
+        }
+
+        if (feature.Map is { } map)
+        {
+            string floor = map.Rings == 0 ? "no walkable floor" : string.Create(CultureInfo.InvariantCulture, $"{map.Rings} floor ring(s)");
+            string label = map.Label.Length == 0 ? string.Empty : $", label \"{map.Label}\"";
+            text.Append(CultureInfo.InvariantCulture, $"  map: {floor}, {map.Markers} marker(s){label}\n");
         }
 
         return text.ToString();
@@ -1517,6 +1601,9 @@ public static partial class RoomCommands
     {
         /// <summary>The library's skybox room, which every level carries once, or null.</summary>
         public string? Skybox { get; init; }
+
+        /// <summary>Per room with a displacement, water or map section, what those say (<see cref="RoomPack.ReadFeatureSummariesAsync"/>).</summary>
+        public IReadOnlyDictionary<string, RoomFeatureSummary> Features { get; init; } = new Dictionary<string, RoomFeatureSummary>();
     }
 
     /// <summary>
@@ -1581,13 +1668,15 @@ public static partial class RoomCommands
         IReadOnlyDictionary<string, RoomNameSummary> names = await RoomPack.ReadNameSummariesAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
         IReadOnlyDictionary<string, int> lighting = await RoomPack.ReadLightingTurnsAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        IReadOnlyDictionary<string, RoomFeatureSummary> features = await RoomPack.ReadFeatureSummariesAsync(stream, index, cancellationToken).ConfigureAwait(false);
         if (space is not null)
         {
             names = names.Where(p => p.Key.StartsWith(space.Prefix, StringComparison.Ordinal)).ToDictionary(p => Own(p.Key), p => p.Value, StringComparer.Ordinal);
             lighting = lighting.Where(p => p.Key.StartsWith(space.Prefix, StringComparison.Ordinal)).ToDictionary(p => Own(p.Key), p => p.Value, StringComparer.Ordinal);
+            features = features.Where(p => p.Key.StartsWith(space.Prefix, StringComparison.Ordinal)).ToDictionary(p => Own(p.Key), p => p.Value, StringComparer.Ordinal);
         }
 
-        return new PackCounts(options, counts, names, libraryEntities, lighting) { Skybox = skybox };
+        return new PackCounts(options, counts, names, libraryEntities, lighting) { Skybox = skybox, Features = features };
     }
 
     private static string Num(float value) => value.ToString("0.##", CultureInfo.InvariantCulture);

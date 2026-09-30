@@ -4534,7 +4534,8 @@ sample's `corner` room did not grow its patch (as PRs 6 to 13 left the
 sample alone: the harness levels carry the end-to-end facts at every
 rotation, and the sample's unchanged digests show a level without
 displacements links as before); the stress library has none; `ssmap rooms`
-does not list displacements; and whether the engine builds a displacement's
+does not list displacements (the map follow-ups list them, their note after
+PR 22's); and whether the engine builds a displacement's
 collision from a hull another compile cut differently, as the facts
 expect from the virtual mesh's format, belongs to the 15.8 checklist.
 With PR 19 (room heights, merged before this landed) the cell rule reads
@@ -4573,7 +4574,8 @@ in `BspMapChecksum`; `SourceSharp.RoomContracts.LevelMap` holds the keys
   sky, nodraw, water (warp), trigger (the plugs and caps), hint or skip.
   A face's normal is its plane's (the compiler writes a face on the plane of
   its own orientation; the side byte only says which of the pair that is).
-  Displacements are left out until rooms carry them (PR 15).
+  Displacements were left out until rooms carried them (PR 15); the map
+  follow-ups add them (their note, below).
 - **Water** (PR 14's, merged first): a water surface is not ground a player
   stands on (its faces are warp), and the floor under water is floor like
   any other; in a joined water doorway both the floor and the surface are
@@ -4673,9 +4675,10 @@ turns, and a transition level with a marker, a label and a platform
 (`func_brush`) at four turns, and water through a joined door at four
 turns; and `ssmap map2d -level` of the linked map is the link's own file.
 
-Not done: displacements and water surfaces (PRs 15 and 14 carry them into
-rooms first); multi-cell rooms (PR 20); packing the file into the pakfile
-(O37's later option); `ssmap rooms` lists `MAPV` in its section table only.
+Not done: displacements (PR 15 carried them into rooms first; the map
+follow-ups add them, below); multi-cell rooms (PR 20, dropped by D30);
+packing the file into the pakfile (O37's later option); `ssmap rooms`
+listed `MAPV` in its section table only (the follow-ups list it per room).
 
 Measured against main at the merge of PR 21 (and, before the merges of PRs
 14 and 21, against the plan branch, to the same result): a non-incremental
@@ -4894,6 +4897,109 @@ turn, and the sample's unchanged digests show a level without detail props
 links as before); the stress library has none; whether the engine draws a
 level's detail props from a lump sorted stably by leaf is on the 15.8
 checklist.
+
+**Map follow-ups landed** (displacements on the level map, and `ssmap
+rooms` listing each room's displacements, water and map). Section 18's map
+left displacements out while PR 15 was carrying them into rooms; with both
+merged, the map draws them, and the listing names what a room carries on
+its own lines.
+
+- **The rule** (`RoomMapFaces`, still one function for the pack and for
+  `ssmap map2d`). A displacement is floor by its displaced surface, never
+  by its flat base face. The surface is built from the compile's lumps as
+  the engine and vrad build it (`DisplacementSurface`: the base face's
+  corners from the start corner, each vertex its flat point plus its vector
+  times its distance, two triangles a grid square with the diagonal
+  alternating), and each triangle whose normal, taken on the side the base
+  face faces, has z of at least 0.7 is a face of the rule: cut to the cell,
+  kept within the room's height, cut away inside a plug box, snapped and
+  unioned exactly as a brush face. So a patch of rolling ground is one
+  polygon whose band runs from its lowest to its highest point, and floor
+  that a slab's displacement stands on is gone from the map (the slab's top
+  is its base face) and replaced by the surface.
+- **Steep parts (decided here).** A triangle steeper than the walkable
+  slope is not floor, as a steep brush face is not: it is left out, so a
+  ridge or a cliff reads on the map as the edge of the ground either side
+  of it (a gap between two polygons, or a hole), the same way a wall does,
+  and the heights of the ground on either side stay two bands the game can
+  tell apart. Drawing steep parts as floor would put ground where a player
+  slides off, and drawing them as a separate "slope" kind would need a
+  format change for what the band already says. Likewise a triangle the
+  author removed (its tag's remove bit) is no surface and not floor; a
+  displacement whose base face is sky, nodraw, skip and so on is not floor
+  whatever its surface; a displacement facing down (a ceiling's) is not
+  floor however flat; and a displacement on a wall face is judged by its
+  surface, not its base face's slope, so a wall sculpted into a ramp is
+  floor (facts for each).
+- **Link equals flatten.** The two sides must tessellate the same floats
+  with the same arithmetic, so a placed room's surface is built in the
+  room's own frame: `ssmap map2d -level` takes the flattened compile's base
+  corners and start back through the placement (a quarter turn and a
+  whole-cell move, exact) and its vectors back through the turn (a swap and
+  a sign), then tessellates, as the pack tessellates the room compile's
+  numbers. Tessellating in the level's frame and moving the triangles
+  afterwards would round every vertex in a different place. For the same
+  reason a displacement's triangles are cut to the cell in the room's
+  frame, and a displacement belongs to one placement only, the one whose
+  cell holds its base face's centre (vbsp never merges a displacement
+  across rooms, as it may merge a floor across a doorway), so a surface
+  reaching a hair over its cell's edge, which PR 15's cell rule allows
+  within the tolerance, is cut there on both sides and not drawn into the
+  neighbour.
+- **No format or version change.** `MAPV` keeps its layout and revision
+  (PR 22 was not released before this, so no pack in use holds a map
+  without its displacements that this build would read as current; the
+  room cache is keyed by the build, so a cached room is rebuilt). A room
+  without displacements packs the same `MAPV` bytes.
+- **`ssmap rooms`** reads each room's `DISP`, `WATR` and `MAPV` sections
+  without its compile (`RoomPack.ReadFeatureSummariesAsync`: a count, or
+  the map's rings and markers) and lists, after the room's lighting line and
+  before its doors, `displacements: {n}`, `water: {n} volume(s)` (the
+  section's water data count: connected bodies of water) and `map: {r}
+  floor ring(s), {m} marker(s)` with `, label "{label}"` when the room has
+  one (`map: no walkable floor, ...` for a room without floor). Each line
+  is written only for a room with the section, so a pack written before the
+  sections lists as it did; every room a current build packs has a map, so
+  its listing gains the map line (a cube room's other lines are unchanged,
+  pinned by the listing facts).
+
+Tests: the rule on synthetic compiles (the surface not the base face, the
+slope bound on both sides per triangle at 0.707 and 0.685, a ridge's flanks,
+a ceiling's patch, a nodraw one, removed triangles, a power the format does
+not allow, a wall sculpted into a ramp both ways, and a placed patch rebuilt
+in its room's frame at every turn, cut at its cell's edge, owned by its
+base face's cell); a real compile (the hub's patches as one piece of floor
+above their base faces, the other room's ridge leaving ground either side);
+**equivalence**, the linked map equal to `ssmap map2d -level` of the
+flattened compile byte for byte, for the displacement harness's hub and
+other room with a ridge at each of the four turns and in a 3 x 2 level of
+mixed turns; the listing (the section readers, the pack summary, a pack
+without the sections, the pinned lines, and `ssmap room` then `ssmap rooms`
+on a library with patches, a marker and a label).
+
+Measured against the merge base (PR 22 with main after PR 15 merged in): a
+non-incremental build has no warning and the whole suite passes. `ssmap
+vbsp` on 2fort gives `a491f59df3b484dc`, vrad on its vis'd map
+`13dd86de1bde7eb2` at 4 threads and 1, `ssmap all` writes `7955274d...`
+(2fort as `sdk_ctf_2fort`), `62c7aba5...` (as `c.vmf`) and `09c58ee2...`
+(the sandbox). The 3 x 3, transit and stress packs keep every section byte
+for byte (117, 172 and 5,378 sections; the compile id and build identity
+aside, `MAPV` included); every level of the three linked by this build from
+the base's packs is the base's map, `.nav3d` and `.map2d` byte for byte (44
+files), and linked from this build's own packs every `.map2d` is the
+base's. Through the CLI, the 3 x 3 sample with two patches added to its
+`end` room (a power 3 patch with a 40-unit ridge and a power 2 patch beside
+it): `ssmap room`, then for each of the eight levels `ssmap link`, `ssmap
+link --flatten`, `ssmap vbsp` of the flattened VMF and `ssmap map2d -level`
+of its compile give the same `.map2d` byte for byte but for the checksum,
+at every turn of the `end` room, each map passing `ssmap check` with its one
+warning; the room's `MAPV` grows from 188 to 284 bytes and the 3 x 3
+level's map from 1,796 to 1,876, and `ssmap rooms` lists `displacements: 2`
+and `map: 5 floor ring(s), 0 marker(s)` for it. The surface costs pack time
+only (the link turns stored polygons as before): a cell floored with 16
+patches unions in 15 to 21 ms at power 2 (512 triangles) and 26 to 44 ms
+at power 3 (2,048), minimum to median of twelve warm runs, three runs, on a
+busy 4-core machine, against a room compile of seconds.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
@@ -6105,8 +6211,9 @@ marked, in a file the game loads to draw a map overlay. This section is the
 plan; PR 22 (section 13) builds it. The choices the owner has not made yet
 were O34 to O38; the owner took every recommended default on 2026-09-30
 (D31 to D35). **Landed** with PR 22 (section 13, its landed note, which
-records the details this section left open); the file is specified in
-[`docs/map2d-format.md`](map2d-format.md).
+records the details this section left open), and displacements with the
+map follow-ups (section 13, their landed note after PR 22's); the file is
+specified in [`docs/map2d-format.md`](map2d-format.md).
 
 ### 18.1 What the map shows
 
@@ -6147,6 +6254,11 @@ player's movement code uses), excluding sky and nodraw faces, the plugs and
 caps (sealed door faces are doors, 18.1), and faces a solid brush sits on.
 Brush entities a player stands on (`func_detail` is world; `func_brush`
 and doors are entities) are included when they are solid to the player.
+A displacement (4.5) is floor by its displaced surface, never by its flat
+base face: each triangle of the surface whose normal on the base face's
+front has z of at least 0.7 is a face of the rule; its steep triangles
+are not floor, as a steep brush face is not (the map follow-ups' note in
+section 13).
 
 Why not the navigation voxels: they would match the AI's idea of the
 walkable space exactly, but a library may have no navigation, their

@@ -330,7 +330,30 @@ internal sealed class RoomMapView
     public static RoomMapView? Read(ArraySegment<byte>? section, RoomDefinition definition, BspData? bsp)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (RoomLinkSections.Open(section, definition.Name, SectionTag) is not { } r)
+        return Read(section, definition.Name, definition.Sockets.Count, bsp);
+    }
+
+    /// <summary>
+    /// What <c>ssmap rooms</c> lists of a room's map, from its section, with
+    /// no room definition to hold the doors to: null when the room has no
+    /// section, or one of a revision this build does not read.
+    /// </summary>
+    /// <param name="section">The section's bytes, or null.</param>
+    /// <param name="room">The room's name, for messages.</param>
+    /// <returns>The summary, or null.</returns>
+    /// <exception cref="LinkException">The section is cut short or out of shape.</exception>
+    internal static RoomMapSummary? ReadSummary(ArraySegment<byte>? section, string room)
+    {
+        ArgumentNullException.ThrowIfNull(room);
+        return Read(section, room, null, null) is { } view
+            ? new RoomMapSummary(view.Polygons.Count, view.Polygons.Sum(p => 1 + p.Holes.Count), view.Markers.Count, view.Label)
+            : null;
+    }
+
+    /// <summary>The section read, its doors held to <paramref name="sockets"/> when that is given.</summary>
+    private static RoomMapView? Read(ArraySegment<byte>? section, string room, int? sockets, BspData? bsp)
+    {
+        if (RoomLinkSections.Open(section, room, SectionTag) is not { } r)
         {
             return null;
         }
@@ -381,9 +404,11 @@ internal sealed class RoomMapView
         }
 
         int doorCount = r.Int();
-        if (doorCount != definition.Sockets.Count)
+        if (sockets is { } expected ? doorCount != expected : doorCount < 0)
         {
-            throw r.Mismatch(string.Create(CultureInfo.InvariantCulture, $"{doorCount} doors; the room has {definition.Sockets.Count} sockets"));
+            throw r.Mismatch(sockets is { } count
+                ? string.Create(CultureInfo.InvariantCulture, $"{doorCount} doors; the room has {count} sockets")
+                : string.Create(CultureInfo.InvariantCulture, $"{doorCount} doors"));
         }
 
         List<RoomMapDoor> doors = new(doorCount);

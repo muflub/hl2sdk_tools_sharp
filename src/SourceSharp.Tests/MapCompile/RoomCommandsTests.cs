@@ -1688,8 +1688,9 @@ public sealed class RoomCommandsTests
     /// <summary>
     /// With the library's pack beside it, <c>ssmap rooms</c> opens with the
     /// entity budget and lists each room's entities, edicts and server-only
-    /// ones, and how many turns its base lighting is stored for (one: no
-    /// sun or sky reaches these rooms); <c>-rooms</c> names another pack.
+    /// ones, how many turns its base lighting is stored for (one: no
+    /// sun or sky reaches these rooms) and its level map (one floor ring, no
+    /// marker); <c>-rooms</c> names another pack.
     /// </summary>
     [Fact]
     public async Task RoomsListsEachRoomsEntitiesFromThePack()
@@ -1706,15 +1707,84 @@ public sealed class RoomCommandsTests
         Assert.StartsWith("hub: cell at (0, 0, 0)", lines[2], StringComparison.Ordinal);
         Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[3]);
         Assert.Equal("  lighting: 1 turn, no sun or sky reaches it", lines[4]);
-        Assert.StartsWith("end: cell at", lines[9], StringComparison.Ordinal);
-        Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[10]);
-        Assert.Equal("  lighting: 1 turn, no sun or sky reaches it", lines[11]);
+        Assert.Equal("  map: 1 floor ring(s), 0 marker(s)", lines[5]);
+        Assert.StartsWith("hub: ", lines[2], StringComparison.Ordinal);
+        Assert.StartsWith("end: cell at", lines[10], StringComparison.Ordinal);
+        Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[11]);
+        Assert.Equal("  lighting: 1 turn, no sun or sky reaches it", lines[12]);
+        Assert.Equal("  map: 1 floor ring(s), 0 marker(s)", lines[13]);
 
         fs.AddFile(Rooted("/elsewhere/other.roompack"), fs.GetBytes(VPath.Create(Rooted("/game/maps/rooms.roompack")))!);
         await fs.DeleteAsync(VPath.Create(Rooted("/game/maps/rooms.roompack")));
         using StringWriter named = new();
         Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/rooms.vmf", "-rooms", "/elsewhere/other.roompack"], named));
         Assert.Equal(output.ToString(), named.ToString());
+    }
+
+    /// <summary>
+    /// A library with displacements, a marker and a label: <c>ssmap rooms</c>
+    /// lists each room's displacements and its map (floor rings, markers,
+    /// label) on the room's own lines, after its lighting and before its
+    /// doors; the other room its one patch and its map without a label.
+    /// </summary>
+    [Fact]
+    public async Task RoomsListsDisplacementsAndTheMapOnEachRoomsLines()
+    {
+        InMemoryFileSystem fs = Game();
+        VmfDocument library = RoomDisplacementHarness.Library(
+            RoomDisplacementHarness.Patches,
+            (0, RoomPropHarness.Entity("info_poi", 7001, new SourceSharp.MapFormats.Geometry.Vec3(40, 40, 16), ("map_marker", "shop"), ("map_label", "Shop"))));
+        TransitHarness.Marker(library, "hub").AddKey("map_label", "Atrium");
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter compile = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], compile));
+
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/rooms.vmf"], output));
+        List<string> lines = [.. output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)];
+        int hub = lines.FindIndex(l => l.StartsWith("hub: ", StringComparison.Ordinal));
+        int other = lines.FindIndex(l => l.StartsWith("other: ", StringComparison.Ordinal));
+        Assert.StartsWith("  lighting: ", lines[hub + 2], StringComparison.Ordinal);
+        Assert.Equal("  displacements: 2", lines[hub + 3]);
+        Assert.Matches("^  map: [1-9][0-9]* floor ring\\(s\\), 1 marker\\(s\\), label \"Atrium\"$", lines[hub + 4]);
+        Assert.StartsWith("  ", lines[hub + 5], StringComparison.Ordinal);
+        Assert.Contains(" to (", lines[hub + 5], StringComparison.Ordinal);
+        Assert.Equal("  displacements: 1", lines[other + 3]);
+        Assert.Matches("^  map: [1-9][0-9]* floor ring\\(s\\), 0 marker\\(s\\)$", lines[other + 4]);
+        Assert.DoesNotContain(lines, l => l.StartsWith("  water: ", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The feature lines, pinned: displacements only when there are some,
+    /// water with its volumes, a map with its rings, markers and label, a map
+    /// with no floor said so, and a room the summaries do not name (no
+    /// section) with no line at all.
+    /// </summary>
+    [Fact]
+    public void TheFeatureLinesArePinned()
+    {
+        IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(RoomHarness.LibraryVmf(
+            Hub, RoomHarness.WalkableRoom("end", RoomFacing.PositiveX), RoomHarness.WalkableRoom("hall", RoomFacing.PositiveX, RoomFacing.NegativeX)));
+        Dictionary<string, RoomEntityCounts?> counts = new() { ["hub"] = null, ["end"] = null, ["hall"] = null };
+        Dictionary<string, RoomFeatureSummary> features = new()
+        {
+            ["hub"] = new RoomFeatureSummary(3, 2, new RoomMapSummary(2, 3, 1, "Atrium")),
+            ["end"] = new RoomFeatureSummary(0, null, new RoomMapSummary(0, 0, 0, string.Empty)),
+        };
+        string text = RoomCommands.DescribeLibrary(
+            rooms, counts, RoomLibraryOptions.None, EntityClassTable.Default, new Dictionary<string, RoomNameSummary>(), [], new Dictionary<string, int>(), features);
+        string[] lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        int hub = Array.FindIndex(lines, l => l.StartsWith("hub: ", StringComparison.Ordinal));
+        Assert.Equal(["  displacements: 3", "  water: 2 volume(s)", "  map: 3 floor ring(s), 1 marker(s), label \"Atrium\""], lines[(hub + 2)..(hub + 5)]);
+        int end = Array.FindIndex(lines, l => l.StartsWith("end: ", StringComparison.Ordinal));
+        Assert.Equal("  map: no walkable floor, 0 marker(s)", lines[end + 2]);
+        int hall = Array.FindIndex(lines, l => l.StartsWith("hall: ", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines[(hall + 1)..], l => l.StartsWith("  map: ", StringComparison.Ordinal));
+
+        // Without the summaries the listing is the lit one, line for line.
+        Assert.Equal(
+            RoomCommands.DescribeLibrary(rooms, counts, RoomLibraryOptions.None, EntityClassTable.Default, new Dictionary<string, RoomNameSummary>(), [], new Dictionary<string, int>()),
+            RoomCommands.DescribeLibrary(rooms, counts, RoomLibraryOptions.None, EntityClassTable.Default, new Dictionary<string, RoomNameSummary>(), [], new Dictionary<string, int>(), new Dictionary<string, RoomFeatureSummary>()));
     }
 
     /// <summary>

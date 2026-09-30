@@ -450,6 +450,31 @@ internal sealed class RoomWater
             return null;
         }
 
+        return Read(r, bsp);
+    }
+
+    /// <summary>
+    /// How many water volumes (water data records) a room's section holds,
+    /// read without the room's compile (what <c>ssmap rooms</c> lists); null
+    /// when the section is absent or of a revision this build does not read.
+    /// </summary>
+    /// <param name="section">The section's bytes, or null.</param>
+    /// <param name="room">The room's name, for messages.</param>
+    /// <returns>The count, or null.</returns>
+    /// <exception cref="LinkException">The section is cut short, or its count is negative.</exception>
+    internal static int? ReadVolumeCount(ArraySegment<byte>? section, string room)
+    {
+        if (RoomLinkSections.Open(section, room, SectionTag) is not { } r)
+        {
+            return null;
+        }
+
+        int count = r.Int();
+        return count >= 0 ? count : throw r.Mismatch($"{count} water data records");
+    }
+
+    private static RoomWater Read(RoomLinkSections.Reader r, BspData bsp)
+    {
         int lump = BspStructView.Count<DLeafWaterData>(bsp[BspLump.LeafWaterData]);
         int dataCount = r.Int();
         if (dataCount != lump)
