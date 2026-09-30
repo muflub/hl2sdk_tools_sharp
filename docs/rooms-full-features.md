@@ -4441,6 +4441,7 @@ then.
 | 10.4 binding | R | `{roomnav} was written for another pack than {roompack}; recompile the library with ssmap room.` |
 | 10.4 missing | W | `{roompack} has no {roomnav} beside it; the level links without navigation, and rooms {rooms} have points of interest.` |
 | 4.14 cordon | R | `the room library has a cordon; rooms are cut by their cells, not by cordons.` |
+| lint, empty room | R | `rule 2 (ShellSealedExceptAtSockets): room {room} has no world brushes; a room is a shell of world brushes around its cell, and a compile of none has no world to build.` (a cell marked as a room with nothing built in it, or only brush entities; refused by the model check before the compile, and reported for that room alone) |
 | 11.1 count | R | `level {level}: {k} {up/down} rooms ({cells}, or none); a level has exactly one unless it says "{up/down}: none".` |
 | 11.1 switched off | R | `level {level}: says "{role}: none" but places {role} room {room} at cell ({x}, {y}).` |
 | 11.1 map key | R | `level {level}: has a{n} {role} room but no {role}_map.` / `level {level}: says "{role}: none" and also names {role}_map.` |
