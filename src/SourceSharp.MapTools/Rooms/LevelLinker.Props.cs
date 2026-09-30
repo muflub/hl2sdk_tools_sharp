@@ -105,9 +105,9 @@ public static partial class LevelLinker
             RoomDefinition definition = placement.Room.Definition;
             RoomPlacement where = placement.Instance.Placement;
             JoinedMask joined = JoinedSides(definition, placement.Instance);
-            if (!files.TryGetValue(definition.Name, out List<(int RoomProp, int Linked)>? roomFiles))
+            if (!files.TryGetValue(placement.Instance.Placement.Room, out List<(int RoomProp, int Linked)>? roomFiles))
             {
-                files[definition.Name] = roomFiles = [];
+                files[placement.Instance.Placement.Room] = roomFiles = [];
             }
 
             for (int i = 0; i < props.Props.Count; i++)

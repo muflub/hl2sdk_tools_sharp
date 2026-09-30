@@ -259,6 +259,8 @@ public sealed record RoomObject(
 public sealed class RoomLibrary
 {
     private readonly Dictionary<string, RoomObject> _rooms = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _sources = new(StringComparer.Ordinal);
+    private readonly List<RoomLibraryOptions> _sourceOptions = [];
 
     /// <summary>The kit every room of this library was built to.</summary>
     public SocketKit Kit { get; }
@@ -324,6 +326,70 @@ public sealed class RoomLibrary
 
         _rooms[d.Name] = room;
     }
+
+    /// <summary>
+    /// Adds or replaces a room under a name of the level's rather than its
+    /// own: a room of a level of several libraries, under its qualified
+    /// name (<c>base.corner</c>, <see cref="LevelLibraries.Combine"/>).
+    /// </summary>
+    /// <param name="name">The name the level places it by.</param>
+    /// <param name="room">The compiled room; its kit and cell must match the library's.</param>
+    /// <param name="source">Which of the level's libraries it comes from, in level order (<see cref="SourceOf"/>).</param>
+    /// <exception cref="ArgumentException">The room belongs to another kit or cell size, or the source is not a library's.</exception>
+    /// <remarks>
+    /// The room keeps its own definition, and with it the name it was
+    /// compiled under (<see cref="RoomDefinition.Name"/>), which is also the
+    /// map name its packed files are named after. Only the level's lookup
+    /// uses <paramref name="name"/>, so two libraries' rooms of one name are
+    /// two rooms of the level.
+    /// </remarks>
+    public void Add(string name, RoomObject room, int source)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentOutOfRangeException.ThrowIfNegative(source);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(source, Math.Max(_sourceOptions.Count, 1));
+        Add(room);
+        if (!string.Equals(name, room.Definition.Name, StringComparison.Ordinal))
+        {
+            _rooms.Remove(room.Definition.Name);
+            _rooms[name] = room;
+        }
+
+        _sources[name] = source;
+    }
+
+    /// <summary>
+    /// Declares the libraries a level of several draws from, in level order,
+    /// by their settings: the name-valued keys of each (which stay with its
+    /// rooms, the rooms design's 17.4) are read from here. Call before
+    /// adding their rooms (<see cref="Add(string, RoomObject, int)"/>).
+    /// </summary>
+    /// <param name="options">Each library's settings, in level order.</param>
+    public void SetSources(IReadOnlyList<RoomLibraryOptions> options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        _sourceOptions.Clear();
+        _sourceOptions.AddRange(options);
+    }
+
+    /// <summary>
+    /// Which of the level's libraries a room comes from, in level order: 0
+    /// for every room of a library that is not a level's combination (and
+    /// for a name it does not hold).
+    /// </summary>
+    /// <param name="name">The name the level places the room by.</param>
+    /// <returns>The library's index.</returns>
+    public int SourceOf(string name) => _sources.GetValueOrDefault(name);
+
+    /// <summary>
+    /// The name-valued keys a room's library adds to the built-in table, for
+    /// reading the room's names: its own library's in a combination, else
+    /// this library's (<see cref="RoomLibraryOptions.NameKeySet"/>).
+    /// </summary>
+    /// <param name="name">The name the level places the room by.</param>
+    /// <returns>The keys, or null when its library adds none.</returns>
+    public IReadOnlySet<string>? NameKeysOf(string name) =>
+        _sourceOptions.Count == 0 ? Options.NameKeySet : _sourceOptions[SourceOf(name)].NameKeySet;
 
     /// <summary>Finds a room by name.</summary>
     /// <param name="name">The room's name.</param>

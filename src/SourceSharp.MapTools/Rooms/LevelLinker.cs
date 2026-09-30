@@ -289,7 +289,7 @@ public static partial class LevelLinker
         // Whether the level is lit (its rooms' base bakes, the rooms design,
         // section 9), and what its rooms agree on: null for a level of unlit
         // rooms, which links exactly as it did before the bake.
-        LevelLight? lit = PlanLighting(resolved);
+        LevelLight? lit = PlanLighting(resolved, library);
 
         // The level's one pak: every placed room's packed files, merged by
         // name (LevelPakFiles). Each room's pak is a zip, and reading it is
@@ -298,14 +298,21 @@ public static partial class LevelLinker
         // since every placement packs the same bytes. A room with stored
         // link data had its pak read when it was compiled, but its files
         // are wanted now too.
+        // Each room is known by the name the level places it by (its
+        // qualified name in a level of several libraries, where two
+        // libraries' rooms may share a name), and its files are renamed by
+        // the name it was compiled under (its map name, compileNames).
         List<(string Room, ZipArchiveReader Pak)> paks = [];
         HashSet<string> readPaks = new(StringComparer.Ordinal);
+        Dictionary<string, string> compileNames = new(StringComparer.Ordinal);
         foreach (ResolvedPlacement placement in resolved)
         {
-            if (readPaks.Add(placement.Room.Definition.Name)
+            string key = placement.Instance.Placement.Room;
+            compileNames[key] = placement.Room.Definition.Name;
+            if (readPaks.Add(key)
                 && await ReadPakAsync(placement.Room, cancellationToken).ConfigureAwait(false) is { } pak)
             {
-                paks.Add((placement.Room.Definition.Name, pak));
+                paks.Add((key, pak));
             }
         }
 
@@ -339,6 +346,7 @@ public static partial class LevelLinker
             props?.Files,
             cubemaps?.ByRoom(),
             lit is not null && props is not null ? BakedPropFiles(resolved, props) : null,
+            compileNames,
             cancellationToken);
 
         // Per-room work: validate the compile against the relocation set and
@@ -417,7 +425,7 @@ public static partial class LevelLinker
 
         LevelNaming naming = new(
             new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows, transitions),
-            library.Options.NameKeySet);
+            library);
         LevelSingletons singletons = new(library.LibraryEntities);
         List<(int Placement, string ClassName)> droppedFurniture = [];
         LevelLightStyles styles = new();
@@ -737,7 +745,7 @@ public static partial class LevelLinker
             {
                 RoomInstance instance = instances[p];
                 RoomObject room = placed[p].Item1;
-                string name = room.Definition.Name;
+                string name = instance.Placement.Room;
                 int texDatas = textures.TexDatas.Count;
                 int strings = textures.StringTable.Count;
                 PlacementCubemaps? patches = cubemaps?.At(p);
@@ -771,7 +779,7 @@ public static partial class LevelLinker
             }
 
             RoomInstance last = layout.Rooms[^1];
-            totals.CheckClusters(library.Get(last.Placement.Room).Definition.Name, last.Placement.CellX, last.Placement.CellY);
+            totals.CheckClusters(last.Placement.Room, last.Placement.CellX, last.Placement.CellY);
         }
 
         return LevelEntityBudget.Check(placements, reserve, classes, LibraryCounts(library, layout));
@@ -821,10 +829,10 @@ public static partial class LevelLinker
             {
                 census = stored.Shared.Sockets[socket];
             }
-            else if (!censuses.TryGetValue((definition.Name, socket), out census!))
+            else if (!censuses.TryGetValue((instance.Placement.Room, socket), out census!))
             {
                 census = CensusSocket(room, BspStructView.As<DLeaf>(room.Bsp[BspLump.Leafs]), definition.Sockets[socket]);
-                censuses[(definition.Name, socket)] = census;
+                censuses[(instance.Placement.Room, socket)] = census;
             }
 
             stripped.UnionWith(census.StrippedBrushes);
