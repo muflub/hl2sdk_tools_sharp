@@ -282,6 +282,11 @@ public static class RoomLibraryVmf
             }
         }
 
+        // Water overlays: those the world holds go to the room whose cell
+        // holds each one's BasisOrigin, as an info_overlay_transition of
+        // their own; every one an entity holds must stand in its room's cell.
+        WaterOverlaysOf(world, markers, owned);
+
         // One of each singleton in the gaps, and every room's own copies
         // checked against them (decision D3): an equal copy is dropped from
         // the room, so no room compile, entity count or link ever sees it.
@@ -375,6 +380,100 @@ public static class RoomLibraryVmf
 
         return new RoomLibrarySplit(rooms, libraryWide) { Options = options, Skybox = skybox };
     }
+
+    /// <summary>
+    /// Gives each room the water overlays the library's world holds in its
+    /// cell, and holds every entity's water overlays to its room's cell.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A water overlay is an <c>overlaydata</c> chunk inside an
+    /// <c>overlaytransition</c> chunk, which vbsp reads from the world and
+    /// from any entity (the editor puts them in an
+    /// <c>info_overlay_transition</c>, which vbsp then clears). A room's
+    /// world is its brushes and keys, so the world's are carried as one
+    /// <c>info_overlay_transition</c> per room, written first among the
+    /// room's entities (vbsp reads the world's before any entity's), each
+    /// overlay going to the room whose cell holds its <c>BasisOrigin</c>.
+    /// One in the gaps would be lost with no room to draw it, and one an
+    /// entity carries into another room's cell would name sides its room
+    /// does not have, so both are refused.
+    /// </para>
+    /// <para>
+    /// The overlays' vectors move with the room (<see cref="VmfPlacement.MoveWaterOverlays"/>),
+    /// and the flatten renames their <c>sides</c> lists as it renames an
+    /// entity's.
+    /// </para>
+    /// </remarks>
+    private static void WaterOverlaysOf(VmfChunk world, List<Marker> markers, List<VmfChunk>[] owned)
+    {
+        List<VmfChunk>?[] fromWorld = new List<VmfChunk>?[markers.Count];
+        foreach (VmfChunk transition in world.GetChunks(MapFileLoader.OverlayTransitionChunk))
+        {
+            foreach (VmfChunk data in transition.GetChunks(MapFileLoader.OverlayDataChunk))
+            {
+                Vec3 at = WaterOverlayOrigin(data, world);
+                int owner = markers.FindIndex(m => new Box(at, at).ContainsWithin(m.Cell, RoomLinter.CellEpsilon));
+                if (owner < 0)
+                {
+                    throw new RoomLibraryException(
+                        $"the library has a water overlay at ({Fmt(at)}) in the gaps between rooms;"
+                        + " a water overlay belongs to the room whose cell holds its BasisOrigin.");
+                }
+
+                (fromWorld[owner] ??= []).Add(VmfPlacement.Clone(data));
+            }
+        }
+
+        for (int i = 0; i < markers.Count; i++)
+        {
+            foreach (VmfChunk entity in owned[i])
+            {
+                foreach (VmfChunk transition in entity.GetChunks(MapFileLoader.OverlayTransitionChunk))
+                {
+                    foreach (VmfChunk data in transition.GetChunks(MapFileLoader.OverlayDataChunk))
+                    {
+                        Vec3 at = WaterOverlayOrigin(data, entity);
+                        if (!new Box(at, at).ContainsWithin(markers[i].Cell, RoomLinter.CellEpsilon))
+                        {
+                            throw new RoomLibraryException(
+                                $"room {markers[i].Name}: entity {VmfPlacement.IdOf(entity)} ({entity.GetValue("classname") ?? "no classname"})"
+                                + $" has a water overlay at ({Fmt(at)}) outside the room's cell;"
+                                + " a water overlay belongs to the room whose cell holds its BasisOrigin.");
+                        }
+                    }
+                }
+            }
+
+            if (fromWorld[i] is { } datas)
+            {
+                VmfChunk carrier = new(MapFileLoader.EntityChunk);
+                carrier.AddKey("classname", WaterOverlayCarrier);
+                carrier.AddKey("origin", VmfPlacement.Format(WaterOverlayOrigin(datas[0], world)));
+                VmfChunk block = new(MapFileLoader.OverlayTransitionChunk);
+                foreach (VmfChunk data in datas)
+                {
+                    block.Children.Add(data);
+                }
+
+                carrier.Children.Add(block);
+                owned[i].Insert(0, carrier);
+            }
+        }
+    }
+
+    /// <summary>The class of the entity a room's water overlays from the world are carried in, as the editor writes one.</summary>
+    internal const string WaterOverlayCarrier = "info_overlay_transition";
+
+    /// <summary>A water overlay's <c>BasisOrigin</c>, which places it.</summary>
+    private static Vec3 WaterOverlayOrigin(VmfChunk data, VmfChunk owner) =>
+        VmfPlacement.BracketedVector(
+            data.GetValue(OverlayOriginKey) ?? throw new RoomLibraryException(
+                $"{(owner.GetValue("classname") is { } c ? $"entity {VmfPlacement.IdOf(owner)} ({c})" : "the world")} has a water overlay without a {OverlayOriginKey}."),
+            OverlayOriginKey,
+            owner);
+
+    private const string OverlayOriginKey = "BasisOrigin";
 
     private static bool IsMapVersion(VmfKey key) =>
         string.Equals(key.Name, RoomLibraryOptions.MapVersionKey, StringComparison.OrdinalIgnoreCase);

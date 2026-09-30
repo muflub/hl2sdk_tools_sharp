@@ -11,6 +11,7 @@ using System.Text;
 
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
+using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Bsp.Collision;
 using SourceSharp.MapTools.Diagnostics;
@@ -170,6 +171,14 @@ public static partial class LevelLinker
                 new PhysStaticSolidEntry(blob, contents).WriteText(text, solids.Count);
                 solids.Add(blob);
             }
+
+            // The rooms' fluids after the static solids, as vbsp writes a
+            // world's (LinkFluids).
+            foreach ((byte[] blob, PhysFluidEntry fluid) in LinkFluids(plans, cooker, materials, brushMap, cancellationToken))
+            {
+                fluid.WriteText(text, solids.Count);
+                solids.Add(blob);
+            }
         }
 
         List<PhysCollideModel> modelRecords = BrushModelCollision(plans, compliance, brushMap, cancellationToken);
@@ -302,12 +311,20 @@ public static partial class LevelLinker
         }
 
         PhysCollideModel record = records[0];
+        List<(int Index, RoomWaterFluid Fluid)> fluids = [];
         (List<(int Index, int Contents)> statics, List<string> materials, bool virtualTerrain) =
-            ParseKeyData(record.KeyText, name);
+            ParseKeyData(record.KeyText, name, fluids);
 
         List<(int, byte[])> solids = [];
         for (int i = 0; i < record.Solids.Count; i++)
         {
+            // A fluid (one connected water volume) is the room's water's,
+            // carried beside the world's solids (RoomWater, ReadRoomFluids).
+            if (fluids.Exists(f => f.Index == i))
+            {
+                continue;
+            }
+
             int at = statics.FindIndex(s => s.Index == i);
             if (at < 0)
             {
@@ -324,23 +341,69 @@ public static partial class LevelLinker
             solids.Add((statics[at].Contents, blob));
         }
 
-        if (statics.Count != record.Solids.Count)
+        if (statics.Count + fluids.Count != record.Solids.Count)
         {
             throw new LinkException(
-                $"room {name}'s world collision names {statics.Count} static solids for {record.Solids.Count} solids");
+                $"room {name}'s world collision names {statics.Count} static solids for {record.Solids.Count - fluids.Count} solids");
         }
 
         return new RoomCollide(solids, materials, virtualTerrain);
     }
 
     /// <summary>
+    /// A room's fluids, one per connected water volume of its world, in
+    /// solid order: each one's <c>fluid</c> block read and its compact
+    /// surface checked (<see cref="RoomWater"/> turns and stores them).
+    /// </summary>
+    /// <param name="bsp">The room's compile, which has a collision lump.</param>
+    /// <param name="name">The room's name, for messages.</param>
+    /// <returns>Each fluid's keys and its VPHY blob.</returns>
+    /// <exception cref="LinkException">The collision lump does not read, or a fluid's solid is not a compact surface.</exception>
+    internal static List<(RoomWaterFluid Fluid, byte[] Blob)> ReadRoomFluids(BspData bsp, string name)
+    {
+        _ = ReadRoomCollide(bsp, name);
+        PhysCollideModel record = PhysCollideLump.Read(bsp[BspLump.PhysCollide].Data.Span)[0];
+        List<(int Index, RoomWaterFluid Fluid)> fluids = [];
+        _ = ParseKeyData(record.KeyText, name, fluids);
+        List<(RoomWaterFluid, byte[])> read = [];
+        foreach ((int index, RoomWaterFluid fluid) in fluids.OrderBy(f => f.Index))
+        {
+            if (index < 0 || index >= record.Solids.Count)
+            {
+                throw new LinkException($"room {name}'s world collision names fluid {index} of {record.Solids.Count} solids");
+            }
+
+            byte[] blob = record.Solids[index];
+            if (blob.Length < VphyWriter.HeaderSize || BinaryPrimitives.ReadUInt32LittleEndian(blob) != VphyMagic
+                || BinaryPrimitives.ReadInt16LittleEndian(blob.AsSpan(6)) != 0)
+            {
+                throw new LinkException($"room {name}'s world collision solid {index} is not a compact surface");
+            }
+
+            read.Add((fluid, blob));
+        }
+
+        return read;
+    }
+
+    /// <summary>
     /// The world keydata: <c>staticsolid</c> blocks (index, contents), an
-    /// optional empty <c>virtualterrain</c> block, and an optional
-    /// <c>materialtable</c>. Any other block — a movable <c>solid</c>, a
-    /// <c>fluid</c> — is a room the relocation does not carry.
+    /// optional empty <c>virtualterrain</c> block, an optional
+    /// <c>materialtable</c>, and a <c>fluid</c> block per water volume (read
+    /// by the overload that collects them, and skipped by this one). Any
+    /// other block — a movable <c>solid</c> — is a room the relocation does
+    /// not carry.
     /// </summary>
     internal static (List<(int Index, int Contents)> Statics, List<string> Materials, bool VirtualTerrain) ParseKeyData(
-        string text, string room)
+        string text, string room) => ParseKeyData(text, room, []);
+
+    /// <summary>
+    /// <see cref="ParseKeyData(string, string)"/>, with each <c>fluid</c>
+    /// block (a water volume's: index, surface property, damping, contents,
+    /// surface plane and current) read into <paramref name="fluids"/>.
+    /// </summary>
+    internal static (List<(int Index, int Contents)> Statics, List<string> Materials, bool VirtualTerrain) ParseKeyData(
+        string text, string room, List<(int Index, RoomWaterFluid Fluid)> fluids)
     {
         List<(int, int)> statics = [];
         List<string> materials = [];
@@ -381,6 +444,9 @@ public static partial class LevelLinker
                 case "virtualterrain":
                     virtualTerrain = true;
                     break;
+                case "fluid":
+                    fluids.Add((KeyInt(pairs, "index", block, room), ParseFluid(pairs, block, room)));
+                    break;
                 case "materialtable":
                     string[] names = new string[pairs.Count];
                     foreach ((string key, string value) in pairs)
@@ -404,6 +470,53 @@ public static partial class LevelLinker
         }
 
         return (statics, materials, virtualTerrain);
+    }
+
+    /// <summary>
+    /// A <c>fluid</c> block's keys as vbsp writes them
+    /// (<see cref="PhysFluidEntry.WriteText"/>): the surface property, the
+    /// damping, the contents and the surface plane; the current is always
+    /// zero and is written back as zero.
+    /// </summary>
+    private static RoomWaterFluid ParseFluid(List<(string Key, string Value)> pairs, string block, string room)
+    {
+        string prop = KeyText(pairs, "surfaceprop", block, room);
+        float damping = KeyFloats(pairs, "damping", 1, block, room)[0];
+        int contents = KeyInt(pairs, "contents", block, room);
+        float[] plane = KeyFloats(pairs, "surfaceplane", 4, block, room);
+        return new RoomWaterFluid(prop, damping, contents, new Vec3(plane[0], plane[1], plane[2]), plane[3]);
+    }
+
+    private static string KeyText(List<(string Key, string Value)> pairs, string key, string block, string room)
+    {
+        foreach ((string k, string v) in pairs)
+        {
+            if (k == key)
+            {
+                return v;
+            }
+        }
+
+        throw new LinkException($"room {room}'s collision keydata block \"{block}\" has no \"{key}\"");
+    }
+
+    private static float[] KeyFloats(List<(string Key, string Value)> pairs, string key, int count, string block, string room)
+    {
+        string value = KeyText(pairs, key, block, room);
+        string[] parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        float[] numbers = new float[parts.Length];
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out numbers[i]))
+            {
+                numbers = [];
+                break;
+            }
+        }
+
+        return numbers.Length == count
+            ? numbers
+            : throw new LinkException($"room {room}'s collision keydata \"{block}\" \"{key}\" is \"{value}\", not {count} number{(count == 1 ? "" : "s")}");
     }
 
     private static int KeyInt(List<(string Key, string Value)> pairs, string key, string block, string room)

@@ -68,6 +68,10 @@ public static partial class LevelLinker
             InternRoomTables(plans[p], planes, textures, cubemaps?.At(p));
         }
 
+        // The level's water data, merged as vbsp merges a map's, now the
+        // surface texinfos have their shared numbers.
+        List<DLeafWaterData>? waterData = PlanWaterData(plans);
+
         List<Plane> topPlanes = [];
         List<DNode> top = BuildTopNodes(layout, cell, topPlanes);
         for (int i = 0; i < top.Count; i++)
@@ -199,6 +203,7 @@ public static partial class LevelLinker
                 }
 
                 shifted.FirstLeafFace = (ushort)plan.LinkedLeafFace(leaf.FirstLeafFace);
+                shifted.LeafWaterDataId = LinkedWaterData(plan, leaf.LeafWaterDataId);
                 if (plan.AreaMap is not null)
                 {
                     shifted.SetAreaFlags(LevelArea(plan, leaf.GetArea()), leaf.GetFlags());
@@ -772,6 +777,19 @@ public static partial class LevelLinker
             linked.SetLump(BspLump.OverlayFades, overlays.Fades);
         }
 
+        // Water: the level's merged data and its water overlays; a level
+        // whose rooms have none carries neither lump, as before water was
+        // carried.
+        if (waterData is not null)
+        {
+            linked.SetLump(BspLump.LeafWaterData, Bytes(waterData));
+        }
+
+        if (LinkWaterOverlays(plans) is { } waterOverlays)
+        {
+            linked.SetLump(BspLump.WaterOverlays, waterOverlays.Lump, waterOverlays.Version);
+        }
+
         return (linked, folded);
     }
 
@@ -901,6 +919,7 @@ public static partial class LevelLinker
         }
 
         shifted.FirstEdge = face.FirstEdge + plan.SurfEdgeBase;
+        shifted.SurfaceFogVolumeId = LinkedWaterData(plan, face.SurfaceFogVolumeId);
         // A lit room's bake lights its drawn faces only; its original faces
         // keep what its compile wrote, as vrad leaves a map's (their offsets
         // name nothing in the level's lightmaps, where the bake's blocks are).

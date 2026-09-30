@@ -656,33 +656,49 @@ public static class LevelFlattener
             }
         }
 
-        /// <summary>Rewrites every <c>sides</c> list of the placement's entities to the renumbered ids.</summary>
+        /// <summary>
+        /// Rewrites every <c>sides</c> list of the placement's entities to
+        /// the renumbered ids: an entity's own, and each water overlay's
+        /// inside its <c>overlaytransition</c> chunks.
+        /// </summary>
         public void RenameSideLists()
         {
             foreach (VmfChunk entity in Entities)
             {
-                foreach (VmfKey key in entity.Keys)
+                Rename(entity);
+                foreach (VmfChunk transition in entity.GetChunks(MapFileLoader.OverlayTransitionChunk))
                 {
-                    if (!string.Equals(key.Name, SidesKey, StringComparison.OrdinalIgnoreCase))
+                    foreach (VmfChunk data in transition.GetChunks(MapFileLoader.OverlayDataChunk))
                     {
-                        continue;
+                        Rename(data);
                     }
-
-                    List<string> renamed = [];
-                    foreach (string token in key.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        if (!int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
-                        {
-                            renamed.Add(token);
-                        }
-                        else if (_sides.TryGetValue(token, out VmfChunk? side))
-                        {
-                            renamed.Add(side.GetValue("id")!);
-                        }
-                    }
-
-                    key.Value = string.Join(' ', renamed);
                 }
+            }
+        }
+
+        private void Rename(VmfChunk chunk)
+        {
+            foreach (VmfKey key in chunk.Keys)
+            {
+                if (!string.Equals(key.Name, SidesKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                List<string> renamed = [];
+                foreach (string token in key.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (!int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+                    {
+                        renamed.Add(token);
+                    }
+                    else if (_sides.TryGetValue(token, out VmfChunk? side))
+                    {
+                        renamed.Add(side.GetValue("id")!);
+                    }
+                }
+
+                key.Value = string.Join(' ', renamed);
             }
         }
     }

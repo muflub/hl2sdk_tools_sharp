@@ -114,14 +114,10 @@ public static partial class LevelLinker
             throw new LinkException($"room {name}'s world model starts at node {models[0].HeadNode}, not 0");
         }
 
+        // A room's water is carried from the water data its compile left
+        // (RoomWater); a room with water and none of that is refused.
         ReadOnlySpan<DLeaf> leafs = BspStructView.As<DLeaf>(bsp[BspLump.Leafs]);
-        foreach (DLeaf leaf in leafs)
-        {
-            if (leaf.LeafWaterDataId != -1)
-            {
-                throw new LinkException($"room {name} has a water leaf, which the relocation refuses");
-            }
-        }
+        _ = RoomWaterOf(room);
 
         _ = RoomAreaPortalsOf(room);
         RefuseGameLumpContent(room);

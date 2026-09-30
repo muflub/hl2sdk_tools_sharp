@@ -83,8 +83,8 @@ namespace SourceSharp.MapTools.Rooms;
 /// other side), in which every cluster of a level sees every other.
 /// </para>
 /// <para>
-/// A room whose compile left anything outside the relocation set — a water
-/// leaf, displacements, detail props — is refused rather than silently
+/// A room whose compile left anything outside the relocation set —
+/// displacements, detail props — is refused rather than silently
 /// dropped: the linked map must be the rooms, not an approximation of them.
 /// </para>
 /// <para>
@@ -125,8 +125,15 @@ namespace SourceSharp.MapTools.Rooms;
 /// <b>Overlays</b> are carried: every placed room's <c>info_overlay</c>
 /// records in link order, each moved and turned with its room, its id,
 /// texinfo and faces rebased, a named one's accessor renumbered to match
-/// (<see cref="LinkOverlays"/>, <see cref="RoomOverlays"/>). Water overlays
-/// are refused with water.
+/// (<see cref="LinkOverlays"/>, <see cref="RoomOverlays"/>).
+/// </para>
+/// <para>
+/// <b>Water</b> is carried: every placed room's water data merged as vbsp
+/// merges a map's, its leaves' and faces' references renumbered, its fluids
+/// moved into the level's collision, its water overlays rebased and moved,
+/// and vvis's water passes run again over the level's visibility
+/// (<see cref="PlanWaterData"/>, <see cref="RoomWater"/>). Water that
+/// reaches a door plug is refused when the room is packed.
 /// </para>
 /// </remarks>
 public static partial class LevelLinker
@@ -159,9 +166,11 @@ public static partial class LevelLinker
     /// <see cref="BspLump.Overlays"/> and <see cref="BspLump.OverlayFades"/>
     /// are rebuilt for the level from the rooms' (<see cref="LinkOverlays"/>),
     /// when the room's compile left its overlay data with it
-    /// (<see cref="RoomOverlaysOf"/>); <see cref="BspLump.WaterOverlays"/>
-    /// is not in the set: water overlays are drawn along water, which is
-    /// refused.
+    /// (<see cref="RoomOverlaysOf"/>).
+    /// <see cref="BspLump.LeafWaterData"/> and <see cref="BspLump.WaterOverlays"/>
+    /// are rebuilt for the level from the rooms' (<see cref="PlanWaterData"/>,
+    /// <see cref="LinkWaterOverlays"/>) when the room's compile left its
+    /// water data with it (<see cref="RoomWaterOf"/>).
     /// </remarks>
     private static readonly ImmutableHashSet<BspLump> CarriedLumps =
         ImmutableHashSet.CreateRange([
@@ -178,6 +187,7 @@ public static partial class LevelLinker
         BspLump.Occlusion, BspLump.PakFile, BspLump.MapFlags, BspLump.Cubemaps,
         BspLump.PhysCollide, BspLump.PhysDisp,
         BspLump.Overlays, BspLump.OverlayFades,
+        BspLump.LeafWaterData, BspLump.WaterOverlays,
         ]);
 
     /// <summary>Links <paramref name="layout"/>'s rooms into one map.</summary>
@@ -441,6 +451,8 @@ public static partial class LevelLinker
         (BspData linked, int foldedBrushes) = Assemble(
             plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, mergedPak,
             cubemaps, droppedFurniture, styles, doorways, areas, areaWarnings, cancellationToken);
+        // vvis's water passes over the level's rows, for a level with water.
+        RecomputeWaterSight(linked, pvs, rowBytes, clusterCount, cancellationToken);
         if (props is not null)
         {
             await WritePropsAsync(linked, props, plans, cancellationToken).ConfigureAwait(false);

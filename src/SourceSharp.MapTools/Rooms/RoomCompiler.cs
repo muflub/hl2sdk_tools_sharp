@@ -179,6 +179,14 @@ public static class RoomCompiler
         MapFileReader.TakeBounds(map);
         RoomLinter.CheckModel(definition, map);
 
+        // Water that reaches a socket's plug (the rooms design, 4.6 and
+        // open point O7), refused before the compile: the loaded map is
+        // what knows a brush is water, from its materials.
+        if (RoomWater.PlugProblem(definition, map) is { } waterProblem)
+        {
+            throw new RoomLintException(waterProblem);
+        }
+
         // The static props as the loader read them: vbsp turns each into a
         // record and drops the entity with the keys the link still needs
         // (room_needs, socket furniture), so they are taken now. A prop
@@ -252,6 +260,11 @@ public static class RoomCompiler
         // (the areas themselves, the listings and the keys are the link's).
         RoomAreaPortals? areaPortals = RoomAreaPortals.Build(definition.Name, vbsp.Bsp);
 
+        // The water the link carries: the records counted, the fluids read
+        // from the collision, their convexes and the water overlays turned
+        // four ways (the texinfos, ids and faces are the link's).
+        RoomWater? water = RoomWater.Build(definition.Name, vbsp.Bsp);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
@@ -265,6 +278,7 @@ public static class RoomCompiler
             Cubemaps = cubemaps,
             Overlays = overlays,
             AreaPortals = areaPortals,
+            Water = water,
         };
     }
 
