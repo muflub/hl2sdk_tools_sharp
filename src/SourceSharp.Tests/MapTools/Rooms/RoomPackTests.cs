@@ -264,15 +264,16 @@ public sealed class RoomPackTests(RoomPackFixture fixture) : IClassFixture<RoomP
 
     /// <summary>A pack of another version is refused naming both versions.</summary>
     [Theory]
-    [InlineData(5)]
+    [InlineData(6)]
     [InlineData(0)]
     [InlineData(-1)]
     public async Task AnotherVersionIsRefused(int version)
     {
         byte[] pack = await SaveAsync(fixture.Items);
         BinaryPrimitives.WriteInt32BigEndian(pack.AsSpan(8), version);
-        Assert.Equal($"room pack version {version}; this build reads version 4.", (await RefusedAsync(pack)).Message);
-        Assert.Equal(4, RoomPack.Version);
+        Assert.Equal($"room pack version {version}; this build reads version 5.", (await RefusedAsync(pack)).Message);
+        Assert.Equal(5, RoomPack.Version);
+        Assert.Equal(4, RoomPack.CubeVersion);
     }
 
     /// <summary>
@@ -303,7 +304,7 @@ public sealed class RoomPackTests(RoomPackFixture fixture) : IClassFixture<RoomP
         byte[] pack = await SaveAsync(fixture.Items);
         BinaryPrimitives.WriteInt32BigEndian(pack.AsSpan(8), 1);
         Assert.Equal(
-            "room pack version 1; this build reads version 4. A version 1 pack was written before the library-wide singletons"
+            "room pack version 1; this build reads version 5. A version 1 pack was written before the library-wide singletons"
             + " were checked when the pack is built; recompile the library with ssmap room.",
             (await RefusedAsync(pack)).Message);
     }
@@ -320,7 +321,7 @@ public sealed class RoomPackTests(RoomPackFixture fixture) : IClassFixture<RoomP
         byte[] pack = await SaveAsync(fixture.Items);
         BinaryPrimitives.WriteInt32BigEndian(pack.AsSpan(8), 2);
         Assert.Equal(
-            "room pack version 2; this build reads version 4. A version 2 pack was written before rooms packed their files"
+            "room pack version 2; this build reads version 5. A version 2 pack was written before rooms packed their files"
             + " (the default cubemaps built from the library's sky), which the link now carries; recompile the library with ssmap room.",
             (await RefusedAsync(pack)).Message);
     }
