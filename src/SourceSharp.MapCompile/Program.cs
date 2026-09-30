@@ -266,6 +266,19 @@ public static class Program
                     .ConfigureAwait(false);
             }
 
+            case "roompack":
+            {
+                // ssmap room over several libraries at once: the same host
+                // half, and one pack with a namespace per library out the
+                // other end.
+                PhysicalFileSystem disk = new("/");
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                IReadOnlyList<VPath> roots = [.. DefaultSteamRoots(home).Select(VPath.Create)];
+
+                return await RoomCommands.RunRoomPackAsync(disk, roots, args[1..], output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             case "link":
             {
                 // The link needs no game: the room objects carry their own
@@ -545,7 +558,19 @@ public static class Program
                                                       lets the link light each room from its
                                                       jointed neighbours (-nodoorlight: not);
                                                       -incremental reuses unchanged rooms from
-                                                      <library>.sscache.db (the same pack)
+                                                      <library>.sscache.db (the same pack);
+                                                      -namespace <key>: rooms named key.room,
+                                                      a pack of one namespace
+              roompack -out <pack.roompack> <key>=<library.vmf> ... [-only <key>[,<key>]]
+                       [room options]                 several libraries -> one pack, a
+                                                      namespace each (rooms key.room), every
+                                                      room compiled with the first library's
+                                                      worldspawn and lit under its sun;
+                                                      -only rebuilds those keys and copies
+                                                      the rest from the existing pack
+              roompack -level <level.yaml> [-out <pack.roompack>] [room options]
+                                                      the libraries a level names, in its
+                                                      order (-out: <level>.roompack)
               link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]
                    [-no-nav | -require-nav] [-nav-codec <c>] [-mod-entities] [-nofold] [-nodoorvis]
                                                       the level's rooms -> one linked map
@@ -561,7 +586,8 @@ public static class Program
                                                       (-nodoorvis: every cluster sees all);
                                                       a level of several libraries takes
                                                       a pack per key: beside each VMF, or
-                                                      -rooms <key>=<pack.roompack> (repeatable)
+                                                      -rooms <key>=<pack.roompack> (repeatable),
+                                                      or one combined -rooms <pack.roompack>
               link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
                                                       the same level as one VMF, for vbsp
               rooms <library.vmf> [-rooms <pack.roompack>]

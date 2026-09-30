@@ -157,64 +157,21 @@ public static partial class RoomCommands
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(openCache);
 
-        // -out is this verb's, not stock vbsp's: take it out of the line first
+        // -out and the verb's other options are taken out of the line first
         // so the stock parser never sees an option it would (correctly) refuse.
+        PackArgs run = new("ssmap room");
         List<string> stock = [];
-        string? outDirectory = null;
-        string? cacheDirectory = null;
-        bool incremental = false;
-        bool noCache = false;
-        bool light = true;
-        bool doorLight = true;
-        string? vradLine = null;
-        RoomNavPackOptions navOptions = new();
+        string? space = null;
         for (int i = 0; i < args.Count; i++)
         {
-            if (Take(args, i, "out", out string o))
+            if (TakePackOption(args, ref i, run))
             {
-                outDirectory = o;
-                i++;
+                continue;
             }
-            else if (Take(args, i, "cache-dir", out string c))
-            {
-                cacheDirectory = c;
-                i++;
-            }
-            else if (IsFlag(args[i], "incremental"))
-            {
-                incremental = true;
-            }
-            else if (IsFlag(args[i], "nocache"))
-            {
-                noCache = true;
-            }
-            else if (Take(args, i, "nav-codec", out string codec))
-            {
-                if (!NavCompression.TryParse(codec, out NavCompression compression))
-                {
-                    await output.WriteLineAsync($"ssmap room: -nav-codec \"{codec}\" is not none, deflate[:0-9] or brotli[:0-11]")
-                        .ConfigureAwait(false);
-                    return Program.ExitUsage;
-                }
 
-                navOptions = navOptions with { Compression = compression };
-                i++;
-            }
-            else if (IsFlag(args[i], "nav-turn0"))
+            if (Take(args, i, "namespace", out string n))
             {
-                navOptions = navOptions with { StoreAllTurns = false };
-            }
-            else if (IsFlag(args[i], "nolight"))
-            {
-                light = false;
-            }
-            else if (IsFlag(args[i], "nodoorlight"))
-            {
-                doorLight = false;
-            }
-            else if (Take(args, i, "vrad", out string vrad))
-            {
-                vradLine = vrad;
+                space = n;
                 i++;
             }
             else
@@ -223,36 +180,15 @@ public static partial class RoomCommands
             }
         }
 
-        // The base bake's vrad switches (-vrad "<stock vrad options>"),
-        // parsed as ssmap vrad parses its own line; stock's defaults without.
-        VradOptions? vradOptions = null;
-        if (light)
+        if (run.UsageError is { } usage)
         {
-            StockArgsResult<VradOptions> vradParsed = StockArgs.ParseVrad(
-                [.. (vradLine ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries), "room"]);
-            foreach (CompileDiagnostic diagnostic in vradParsed.Diagnostics)
-            {
-                await output.WriteLineAsync($"{diagnostic.Code}: {diagnostic.Message}").ConfigureAwait(false);
-            }
-
-            if (vradParsed.HasErrors || vradParsed.Options.LuxelDensity < 1.0f)
-            {
-                await output.WriteLineAsync(
-                    $"ssmap room: -vrad \"{vradLine}\" is not a vrad line a room can be lit with (-luxeldensity below 1 changes the room's geometry)")
-                    .ConfigureAwait(false);
-                return Program.ExitUsage;
-            }
-
-            vradOptions = vradParsed.Options;
-        }
-        else if (vradLine is not null)
-        {
-            await output.WriteLineAsync("ssmap room: -vrad sets how the rooms are lit, and -nolight lights none").ConfigureAwait(false);
+            await output.WriteLineAsync(usage).ConfigureAwait(false);
             return Program.ExitUsage;
         }
-        else if (!doorLight)
+
+        (bool vradOk, VradOptions? vradOptions) = await ParseVradAsync(run, output).ConfigureAwait(false);
+        if (!vradOk)
         {
-            await output.WriteLineAsync("ssmap room: -nodoorlight leaves out lit rooms' door light, and -nolight lights none").ConfigureAwait(false);
             return Program.ExitUsage;
         }
 
@@ -265,7 +201,7 @@ public static partial class RoomCommands
         if (parsed.HasErrors || parsed.MapPath is null)
         {
             await output.WriteLineAsync(
-                "usage: ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <none|deflate[:n]|brotli[:n]>]"
+                "usage: ssmap room <library.vmf> [-out <pack.roompack>] [-namespace <key>] [-nav-turn0] [-nav-codec <none|deflate[:n]|brotli[:n]>]"
                 + " [-nolight | -vrad \"<stock vrad options>\" [-nodoorlight]] [-incremental [-cache-dir <dir>] | -nocache] [stock vbsp options]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
@@ -281,11 +217,29 @@ public static partial class RoomCommands
         // -out resolves against the current directory like the map path does;
         // taken raw, a relative -out landed under the disk root and a rooted
         // one lost its Windows drive.
-        if (!TryHostPath(outDirectory ?? DefaultPack(source), out VPath packPath))
+        if (!TryHostPath(run.Out ?? DefaultPack(source), out VPath packPath))
         {
-            await output.WriteLineAsync($"ssmap room: -out \"{outDirectory}\" is not a usable path")
+            await output.WriteLineAsync($"ssmap room: -out \"{run.Out}\" is not a usable path")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
+        }
+
+        // -namespace: the library as a pack of one namespace, its rooms named
+        // key.room, as ssmap roompack packs a library (the rooms design,
+        // 17.10), for a level that keeps a pack per library.
+        if (space is not null)
+        {
+            if (LevelLibraries.KeyProblem(space) is not null)
+            {
+                await output.WriteLineAsync(
+                    $"ssmap room: -namespace \"{space}\" is not a key; a key starts with a letter and holds only letters, digits, '_' and '-'.")
+                    .ConfigureAwait(false);
+                return Program.ExitUsage;
+            }
+
+            return await PackLibrariesAsync(
+                disk, searchRoots, run, ["room", .. args], [new PackInput(space, source, libraryPath)], [], Path.GetFullPath(run.Out ?? DefaultPack(source)), packPath, vradOptions, parsed,
+                [.. stock.Where(a => a != parsed.MapPath)], openCache, output, cancellationToken).ConfigureAwait(false);
         }
 
         // The library first: a library that does not split into rooms is
@@ -327,7 +281,7 @@ public static partial class RoomCommands
                 : new RoomLightingSettings(vradOptions with { Compliance = parsed.Options.Compliance })
                 {
                     Sun = RoomLightingSettings.SunOf(libraryEntities),
-                    DoorLight = doorLight,
+                    DoorLight = run.DoorLight,
 
                     // Every sky room's bake recasts into the skybox, which
                     // the library compile therefore compiles first.
@@ -336,7 +290,7 @@ public static partial class RoomCommands
             packId = RoomCompileIds.PackId(
                 libraryBytes,
                 [.. PackIdOptions(stock, parsed.MapPath), .. (lighting is null ? Array.Empty<string>() : [lighting.Describe()])],
-                Describe(navSettings, navOptions));
+                Describe(navSettings, run.Nav));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or ChunkFileException or RoomLibraryException)
@@ -350,219 +304,49 @@ public static partial class RoomCommands
             ? Path.GetDirectoryName(Path.GetDirectoryName(source)!)!
             : Path.GetFullPath(parsed.GameDirectory);
 
-        ISteamAppLocator? steam = VbspHost.SteamFor(disk, searchRoots);
-        GameContentMounter.Result mounted;
-        try
-        {
-            mounted = await VbspCommand
-                .MountGameAsync(disk, gameDirectory, steam, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is IOException or InvalidDataException or InvalidOperationException)
-        {
-            await output.WriteLineAsync($"ssmap room: cannot mount {gameDirectory}: {exception.Message}")
-                .ConfigureAwait(false);
-            return ExitFailed;
-        }
-
-        await VbspCommand.WriteSkippedAsync(mounted, "ssmap room", output).ConfigureAwait(false);
-
-        // The format pipeline, exactly where vbsp runs it: after the mount
-        // (it reads the appid and Tools key off the mounted gameinfo), before
-        // the compile.
-        FormatResolution.Result resolution = FormatResolution.Resolve(
-            parsed.Format, parsed.PresetName, parsed.NoFormatDetect, parsed.NoToolsArgs, mounted.GameInfo);
-        VbspOptions options = parsed.Options with { Format = resolution.Resolved };
-        foreach (CompileDiagnostic diagnostic in resolution.Diagnostics)
-        {
-            await output.WriteLineAsync($"{diagnostic.Severity} {diagnostic.Code}: {diagnostic.Message}")
-                .ConfigureAwait(false);
-        }
-
-        VbspHost.CookerSetup setup = await VbspHost.OpenCookerAsync(
-            disk, searchRoots, options, ["room", .. args], "ssmap room", output, cancellationToken)
-            .ConfigureAwait(false);
-        if (setup.Exit is int relaunchExit)
-        {
-            return relaunchExit;
-        }
-
-        await using ICollisionCooker? cooker = setup.Cooker;
-
-        // One hull cache for the run: the rooms of a library name the same
-        // few prop models, so each is cooked about once instead of once per
-        // room. It lives exactly as long as this command, so the default
-        // bound is only a ceiling, never a leak.
-        using PropHullCache hulls = new();
-
-        RoomLibraryCompileSettings settings = new(options, mounted.Content)
-        {
-            CollisionCooker = cooker,
-            PropHullCache = hulls,
-            Nav = navSettings,
-            NameKeys = libraryOptions.NameKeySet,
-            Lighting = lighting,
-            Parallelism = parsed.Threads is int degree && degree > 0
-                ? new CompileParallelism { MaxDegree = degree }
-                : CompileParallelism.Default,
-        };
-
-        // -incremental: the store beside the library (or in -cache-dir),
-        // opened only when asked. A store that will not open is said out
-        // loud and the run compiles everything, as ssmap all does.
-        ICacheStore? store = null;
-        if (incremental && !noCache)
-        {
-            string storePath = HostBackends.CachePathFor(
-                cacheDirectory, Path.GetDirectoryName(source)!, Path.GetFileNameWithoutExtension(source));
-            store = await openCache(storePath, cancellationToken).ConfigureAwait(false);
-            if (store is null)
-            {
-                await output.WriteLineAsync(
-                    "ssmap room: cache: -incremental opened no store ("
-                    + (HostBackends.MissingReason ?? "the store could not be opened")
-                    + "); every room compiles this run").ConfigureAwait(false);
-            }
-        }
-
-        await using ICacheStore? ownedStore = store;
-        using RoomCompileCache? cache = store is null
-            ? null
-            : new RoomCompileCache(
-                store,
-                CachePolicy.Default,
-                new RoomCacheInputs(options)
-                {
-                    Nav = navSettings,
-                    PackOptions = navOptions,
-                    NameKeys = libraryOptions.NameKeySet,
-                    Lighting = lighting,
-                    ContextTags = HostBackends.ContextTagsFor(options.Format.PresetName, cooker),
-                },
-                mounted.Content);
-
-        // Called in library order, one room at a time: the lines, the
-        // failure count and the pack's room list come out the same whatever
-        // order the rooms finished in, and whichever rooms were reused.
-        int failed = 0;
-        int reused = 0;
-        List<RoomPackItem> packed = [];
-        async ValueTask ReportAsync(RoomBuildOutcome outcome, CancellationToken token)
-        {
-            RoomDefinition definition = outcome.Room.Definition;
-            if (outcome.Item is { } item)
-            {
-                // The container, the link work and the navigation the
-                // library compile did ahead for the room (RoomPackItem.CreateAsync),
-                // or the same sections from the cache.
-                packed.Add(item);
-                reused += outcome.Reused ? 1 : 0;
-                await output.WriteLineAsync(
-                    $"ssmap room: {(outcome.Reused ? "reused" : "compiled")} {definition.Name}"
-                    + $" ({outcome.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
-                    .ConfigureAwait(false);
-
-                // What the naming rule warned of (a misplaced placeholder, a
-                // local name nothing defines): the room compiles, but the
-                // author should look.
-                foreach (string warning in outcome.NameWarnings)
-                {
-                    await output.WriteLineAsync($"ssmap room: warning: {warning}").ConfigureAwait(false);
-                }
-
-                // What the navigation could not read (a prop whose model the
-                // content lacks): the room compiles without that obstacle. A
-                // reused room replays the list its compile stored, so the log
-                // is the clean run's whichever rooms came from the cache.
-                foreach (string warning in outcome.NavWarnings)
-                {
-                    await output.WriteLineAsync($"ssmap room: warning: room \"{definition.Name}\": {warning}").ConfigureAwait(false);
-                }
-
-                return;
-            }
-
-            failed++;
-            await output.WriteLineAsync(outcome.Error is RoomLintException
-                ? $"ssmap room: room \"{definition.Name}\" is not linkable: {outcome.Error.Message}"
-                : $"ssmap room: room \"{definition.Name}\": {outcome.Error!.Message}")
-                .ConfigureAwait(false);
-        }
-
-        await RoomLibraryBuild.BuildAsync(rooms, settings, navOptions, cache, ReportAsync, cancellationToken).ConfigureAwait(false);
-
         // The compile id always; the library-wide entities and the library's
         // settings only when there are some, so a library that sets nothing
         // writes the pack it would without them. Tags are looked up, so their
         // order is the writer's.
-        List<RoomPackSectionData> librarySections = [RoomCompileIds.Section(packId)];
-        if (libraryEntities.Count > 0)
+        (IReadOnlyList<RoomPackSectionData>, IReadOnlyList<RoomPackItem>) Assemble(IReadOnlyList<RoomPackItem> packed)
         {
-            librarySections.Add(RoomLibraryEntities.ToSection(libraryEntities));
-        }
-
-        if (libraryOptions.ToSection() is { } optionsSection)
-        {
-            librarySections.Add(optionsSection);
-        }
-
-        if (skyboxRoom is not null)
-        {
-            librarySections.Add(RoomLibrarySkybox.ToSection(skyboxRoom));
-        }
-
-
-        try
-        {
-            await disk.ReplaceAsync(
-                packPath,
-                async (stream, token) => await RoomPack.SaveAsync(librarySections, packed, stream, token).ConfigureAwait(false),
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            await output.WriteLineAsync($"ssmap room: cannot write {HostPaths.Display(packPath)}: {exception.Message}")
-                .ConfigureAwait(false);
-            return ExitFailed;
-        }
-
-        await output.WriteLineAsync(
-            $"ssmap room: wrote {HostPaths.Display(packPath)} ({packed.Count} of {rooms.Count} room(s))")
-            .ConfigureAwait(false);
-
-        if (incremental)
-        {
-            await output.WriteLineAsync(string.Create(
-                CultureInfo.InvariantCulture, $"ssmap room: {packed.Count - reused} compiled, {reused} reused")).ConfigureAwait(false);
-        }
-
-        // The rows go in once the pack is out: a run that stopped before
-        // here staged nothing. A commit that fails is a lost cache, not a
-        // lost pack.
-        if (cache is not null)
-        {
-            try
+            List<RoomPackSectionData> librarySections = [RoomCompileIds.Section(packId)];
+            if (libraryEntities.Count > 0)
             {
-                RoomCacheCommit commit = await cache.CommitAsync(cancellationToken).ConfigureAwait(false);
-                if (commit.GcFailure is { } why)
-                {
-                    await output.WriteLineAsync($"ssmap room: cache: gc failed ({why}); the store was left as it was")
-                        .ConfigureAwait(false);
-                }
+                librarySections.Add(RoomLibraryEntities.ToSection(libraryEntities));
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+
+            if (libraryOptions.ToSection() is { } optionsSection)
             {
-                await output.WriteLineAsync($"ssmap room: cache: commit failed ({exception.Message}); this run's rooms were not stored")
-                    .ConfigureAwait(false);
+                librarySections.Add(optionsSection);
             }
+
+            if (skyboxRoom is not null)
+            {
+                librarySections.Add(RoomLibrarySkybox.ToSection(skyboxRoom));
+            }
+
+            return (librarySections, packed);
         }
 
-        if (failed > 0)
-        {
-            await output.WriteLineAsync($"ssmap room: {failed} of {rooms.Count} room(s) failed").ConfigureAwait(false);
-            return ExitFailed;
-        }
-
-        return Program.ExitSuccess;
+        return await CompileAndWriteAsync(
+            disk,
+            searchRoots,
+            run,
+            ["room", .. args],
+            parsed,
+            gameDirectory,
+            HostBackends.CachePathFor(run.CacheDirectory, Path.GetDirectoryName(source)!, Path.GetFileNameWithoutExtension(source)),
+            rooms,
+            rooms.Count,
+            navSettings,
+            libraryOptions.NameKeySet,
+            lighting,
+            Assemble,
+            packPath,
+            openCache,
+            output,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1022,7 +806,8 @@ public static partial class RoomCommands
         {
             IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(
                 await ReadVmfAsync(disk, libraryVPath, cancellationToken).ConfigureAwait(false));
-            LayoutEntityBudget? budget = await LayoutBudgetAsync(disk, packPath, rooms, explicitBudget, modEntities, cancellationToken)
+            LayoutEntityBudget? budget = await LayoutBudgetAsync(
+                disk, packPath, Path.GetFileNameWithoutExtension(libraryPath), rooms, explicitBudget, modEntities, cancellationToken)
                 .ConfigureAwait(false);
             string from = folder ?? (target is null ? Path.GetFullPath(".") : Path.GetDirectoryName(target)!);
             string library = Path.GetRelativePath(from, libraryPath).Replace('\\', '/');
@@ -1064,6 +849,11 @@ public static partial class RoomCommands
                     new LayoutTransitions(roles) { NoUp = noUp, NoDown = noDown, MinDistance = distance }).WithTransitions(transitions);
                 text = LevelYaml.Write(level, LevelGenerator.Header(options, level));
             }
+        }
+        catch (PackKeyException exception)
+        {
+            await output.WriteLineAsync($"ssmap layout: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or ChunkFileException or RoomLibraryException or LinkException or ArgumentException)
@@ -1120,10 +910,10 @@ public static partial class RoomCommands
     /// counts; or the pack cannot be read.
     /// </exception>
     private static async Task<LayoutEntityBudget?> LayoutBudgetAsync(
-        IFileSystem disk, VPath packPath, IReadOnlyList<LibraryRoom> rooms, int? explicitBudget, bool modEntities, CancellationToken cancellationToken)
+        IFileSystem disk, VPath packPath, string key, IReadOnlyList<LibraryRoom> rooms, int? explicitBudget, bool modEntities, CancellationToken cancellationToken)
     {
         string pack = HostPaths.Display(packPath);
-        PackCounts? counts = await ReadPackCountsAsync(disk, packPath, cancellationToken).ConfigureAwait(false);
+        PackCounts? counts = await ReadPackCountsAsync(disk, packPath, key, false, cancellationToken).ConfigureAwait(false);
         if (counts is null)
         {
             return explicitBudget is null
@@ -1308,7 +1098,12 @@ public static partial class RoomCommands
         PackCounts? counts;
         try
         {
-            counts = await ReadPackCountsAsync(disk, packPath, cancellationToken).ConfigureAwait(false);
+            counts = await ReadPackCountsAsync(disk, packPath, Path.GetFileNameWithoutExtension(libraryPath), false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (PackKeyException exception)
+        {
+            await output.WriteLineAsync($"ssmap rooms: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or LinkException)
         {
@@ -1624,8 +1419,20 @@ public static partial class RoomCommands
         public string? Skybox { get; init; }
     }
 
-    /// <summary>The pack's settings and counts, or null when there is no pack at <paramref name="packPath"/>.</summary>
-    private static async Task<PackCounts?> ReadPackCountsAsync(IFileSystem disk, VPath packPath, CancellationToken cancellationToken)
+    /// <summary>
+    /// The pack's settings and counts, or null when there is no pack at
+    /// <paramref name="packPath"/>: the whole pack's for a plain pack, the
+    /// namespace <paramref name="key"/>'s for a pack with namespaces, its
+    /// rooms under their names within the library.
+    /// </summary>
+    /// <param name="disk">Where the pack is.</param>
+    /// <param name="packPath">The pack.</param>
+    /// <param name="key">The library's key: its level key, or a library VMF's stem.</param>
+    /// <param name="plainRefused">Whether a plain pack is refused: one <c>-rooms</c> given to every key of a level of several.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <exception cref="PackKeyException">The pack cannot give the key its library (17.10's texts).</exception>
+    private static async Task<PackCounts?> ReadPackCountsAsync(
+        IFileSystem disk, VPath packPath, string key, bool plainRefused, CancellationToken cancellationToken)
     {
         if (!await disk.ExistsAsync(packPath, cancellationToken).ConfigureAwait(false))
         {
@@ -1638,17 +1445,46 @@ public static partial class RoomCommands
         IReadOnlyList<VmfChunk> libraryEntities = await RoomPack.ReadLibraryEntitiesAsync(stream, index, cancellationToken).ConfigureAwait(false);
         RoomLibraryOptions options = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken).ConfigureAwait(false);
         string? skybox = await RoomPack.ReadLibrarySkyboxAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<RoomPackNamespace>? namespaces = await RoomPack.ReadNamespacesAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        string pack = HostPaths.Display(packPath);
+        RoomPackNamespace? space = null;
+        if (namespaces is null && plainRefused)
+        {
+            throw new PackKeyException($"room pack {pack} holds one library without a namespace; give it to one key with -rooms {key}={pack}.");
+        }
+
+        if (namespaces is not null)
+        {
+            space = RoomPackNamespaces.Find(namespaces, key)
+                ?? throw new PackKeyException($"room pack {pack} combines libraries {And([.. namespaces.Select(n => n.Key)])}; it has none named {key}.");
+
+            // The pack's singletons are its first namespace's; each keeps its own name keys.
+            bool first = ReferenceEquals(space, namespaces[0]);
+            libraryEntities = first ? libraryEntities : [];
+            options = (first ? options : RoomLibraryOptions.None) with { NameKeys = space.NameKeys };
+            skybox = first && skybox is { } sky && sky.StartsWith(space.Prefix, StringComparison.Ordinal) ? sky[space.Prefix.Length..] : null;
+        }
+
+        // A room's name as the library names it: a namespace's without its prefix.
+        IEnumerable<RoomPackEntry> entries = space is null ? index.Entries : index.Entries.Skip(space.FirstRoom).Take(space.RoomCount);
+        string Own(string name) => space is null ? name : name[space.Prefix.Length..];
         IReadOnlyDictionary<string, RoomEntityCounts> read = await RoomPack.ReadEntityCountsAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
         Dictionary<string, RoomEntityCounts?> counts = new(StringComparer.Ordinal);
-        foreach (RoomPackEntry entry in index.Entries)
+        foreach (RoomPackEntry entry in entries)
         {
-            counts[entry.Name] = read.GetValueOrDefault(entry.Name);
+            counts[Own(entry.Name)] = read.GetValueOrDefault(entry.Name);
         }
 
         IReadOnlyDictionary<string, RoomNameSummary> names = await RoomPack.ReadNameSummariesAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
         IReadOnlyDictionary<string, int> lighting = await RoomPack.ReadLightingTurnsAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        if (space is not null)
+        {
+            names = names.Where(p => p.Key.StartsWith(space.Prefix, StringComparison.Ordinal)).ToDictionary(p => Own(p.Key), p => p.Value, StringComparer.Ordinal);
+            lighting = lighting.Where(p => p.Key.StartsWith(space.Prefix, StringComparison.Ordinal)).ToDictionary(p => Own(p.Key), p => p.Value, StringComparer.Ordinal);
+        }
+
         return new PackCounts(options, counts, names, libraryEntities, lighting) { Skybox = skybox };
     }
 
@@ -1698,6 +1534,27 @@ public static partial class RoomCommands
 
             await using Stream stream = await disk.OpenReadAsync(packPath, cancellationToken).ConfigureAwait(false);
             RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+
+            // A pack with namespaces (ssmap room -namespace, or a combined
+            // pack): the level reads as a level of its one library keyed by
+            // the library file's stem (the rooms design, 17.10), and finds
+            // its rooms in the namespace of that key. A damaged section
+            // counts too, so the link that reads it names the damage.
+            if (index.LibrarySections.Any(s => s.Tag == RoomPackNamespaces.SectionTag))
+            {
+                LevelGrid keyed = new(level.Name, level.Library, level.Rows, level.Columns, level.Cells)
+                {
+                    Transitions = level.Transitions,
+                    Aliases = level.Aliases,
+                    Libraries = [new LevelLibrary(Path.GetFileNameWithoutExtension(level.Library), level.Library)],
+                };
+
+                // Closed first: the link opens the pack again, as a level of libraries.
+                await stream.DisposeAsync().ConfigureAwait(false);
+                return await LinkLibrariesAsync(
+                    disk, keyed, levelBytes, levelPath, roomsPack is null ? [] : [roomsPack], linkOptions, mapPath, nav, output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             // A level of one library with aliases: each replaced by the room
             // it names, which the pack's index lists (the rooms design, 17.2).

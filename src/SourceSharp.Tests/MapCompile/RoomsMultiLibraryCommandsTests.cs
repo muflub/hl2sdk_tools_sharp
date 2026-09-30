@@ -108,8 +108,11 @@ public sealed class RoomsMultiLibraryCommandsTests
 
         (int exit, string text) = await LinkAsync(fs, level, "-rooms", "/sample/rooms.roompack");
         Assert.Equal(1, exit);
+        // The pack is opened to learn it has no namespaces, so the message
+        // names it by its full host path, as the CLI prints every pack.
+        string plain = Path.GetFullPath("/sample/rooms.roompack");
         Assert.Contains(
-            $"room pack {"/sample/rooms.roompack"} holds one library without a namespace; give it to one key with -rooms base={"/sample/rooms.roompack"}.",
+            $"ssmap link: room pack {plain} holds one library without a namespace; give it to one key with -rooms base={plain}.",
             text,
             StringComparison.Ordinal);
 
@@ -143,11 +146,22 @@ public sealed class RoomsMultiLibraryCommandsTests
         Assert.Equal(Program.ExitUsage, exit);
         Assert.Contains("names one library; give -rooms once, with its pack.", text, StringComparison.Ordinal);
 
-        // ssmap rooms over a level: a -rooms that names no key, a pack per key, a level that does not read.
+        // ssmap rooms over a level: a plain pack for every key, a key the
+        // level does not list, a pack per key, a level that does not read.
+        // The listing finds packs as the link does (the rooms design, 17.10).
         using (StringWriter list = new())
         {
-            Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomsAsync(fs, [level, "-rooms", "/sample/rooms.roompack"], list));
-            Assert.Contains("-rooms \"/sample/rooms.roompack\" names no library of the level; write -rooms <key>=<pack>.", list.ToString(), StringComparison.Ordinal);
+            Assert.Equal(1, await RoomCommands.RunRoomsAsync(fs, [level, "-rooms", "/sample/rooms.roompack"], list));
+            Assert.Contains(
+                $"ssmap rooms: room pack {plain} holds one library without a namespace; give it to one key with -rooms base={plain}.",
+                list.ToString(),
+                StringComparison.Ordinal);
+        }
+
+        using (StringWriter list = new())
+        {
+            Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomsAsync(fs, [level, "-rooms", "halls=/sample/rooms.roompack"], list));
+            Assert.Contains("ssmap rooms: -rooms names library halls, which the level does not list; its libraries are base and caves.", list.ToString(), StringComparison.Ordinal);
         }
 
         using (StringWriter list = new())
