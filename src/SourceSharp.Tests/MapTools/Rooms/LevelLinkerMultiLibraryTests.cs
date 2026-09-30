@@ -243,12 +243,12 @@ public sealed class LevelLinkerMultiLibraryTests
     }
 
     /// <summary>
-    /// D26 until the door light: a sunlit room of a library whose sun the
-    /// level drops links as baked, with one line naming the library's first
-    /// such room; a room of it no sun reaches is not named.
+    /// D26 with the door light: a sunlit room of a library whose sun the
+    /// level drops is refused, naming the library's first such room in link
+    /// order; a room of it no sun reaches links under the level's sun.
     /// </summary>
     [Fact]
-    public async Task ASunlitRoomUnderADroppedSunWarns()
+    public async Task ASunlitRoomUnderADroppedSunIsRefused()
     {
         RoomLibrary baseRooms = await RoomLightHarness.CompileAsync(RoomLightHarness.Library(true, [0]));
         VmfDocument cavesVmf = RoomPropHarness.Library();
@@ -257,12 +257,16 @@ public sealed class LevelLinkerMultiLibraryTests
         RoomLightHarness.WorldAlign(cavesVmf);
         RoomLibrary caves = await RoomLightHarness.CompileAsync(cavesVmf);
 
-        (LinkedLevel linked, IReadOnlyList<string> warnings) = await LinkAsync(Level("base.hub, caves.hub, caves.other, caves.other"), 1, baseRooms, caves);
+        LinkException refused = Assert.Throws<LinkException>(
+            () => Combine(Level("base.hub, caves.hub, caves.other, caves.other"), baseRooms, caves));
         Assert.Equal(
-            [
-                "library caves: its light_environment differs from library base's (angles: \"0 120 0\" against \"0 30 0\"); the level takes library base's, the first listed, and drops it.",
-                "library caves: room caves.other was baked under library caves's sun, and the level takes library base's; it links as baked. Build the libraries with one sun.",
-            ],
+            "library caves: room caves.other was baked under library caves's sun, but the level takes library base's;"
+            + " a sunlit room links only under the sun it was baked with. Build the libraries with one sun.",
+            refused.Message);
+
+        (LinkedLevel linked, IReadOnlyList<string> warnings) = await LinkAsync(Level("base.hub, caves.hub"), 1, baseRooms, caves);
+        Assert.Equal(
+            ["library caves: its light_environment differs from library base's (angles: \"0 120 0\" against \"0 30 0\"); the level takes library base's, the first listed, and drops it."],
             warnings);
         Assert.NotEmpty(linked.Bsp[BspLump.Lighting].Data.ToArray());
     }
@@ -282,7 +286,8 @@ public sealed class LevelLinkerMultiLibraryTests
     /// <summary>
     /// The level's sun world lights are the first library's bake even when
     /// another library's room is placed first and was baked under another
-    /// sun; a level of one library keeps taking its first lit placement's.
+    /// sun (a room no sun reaches, which D26 lets link); a level of one
+    /// library keeps taking its first lit placement's.
     /// </summary>
     [Fact]
     public async Task TheSunsWorldLightsAreTheFirstLibrarys()
@@ -290,7 +295,7 @@ public sealed class LevelLinkerMultiLibraryTests
         RoomLibrary baseRooms = await RoomLightHarness.CompileAsync(RoomLightHarness.Library(true, [0]));
         VmfDocument cavesVmf = RoomPropHarness.Library();
         cavesVmf.Chunks.Add(RoomLightHarness.Sun(angles: "0 120 0"));
-        RoomLightHarness.SkyCeiling(cavesVmf, 0);
+        RoomLightHarness.SkyCeiling(cavesVmf, 1); // the hub it places is lit once, so D26 lets it link
         RoomLightHarness.WorldAlign(cavesVmf);
         RoomLibrary caves = await RoomLightHarness.CompileAsync(cavesVmf);
         (LevelGrid resolved, LevelLibrarySet set) = Combine(Level("caves.hub, base.hub"), baseRooms, caves);

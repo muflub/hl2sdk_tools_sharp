@@ -69,6 +69,16 @@ public sealed class FinalLightContext
     public Displacement.DispRadialContext? Displacements { get; init; }
 
     /// <summary>
+    /// For a room library's door response: told every luxel's bounced light
+    /// (face, bump page, luxel, the light) as it is added to the luxel, so the
+    /// response can keep the light its emitter sends round the room apart
+    /// from the light the emitter casts directly. Faces run on many workers,
+    /// each face once, so it is called concurrently for different faces.
+    /// Null in every other compile.
+    /// </summary>
+    internal Action<int, int, int, SourceSharp.MapFormats.Geometry.Vec3>? BounceObserver { get; init; }
+
+    /// <summary>
     /// <c>InitLightinfo</c> for any face, built once
     /// and shared by every radial that reads it.
     /// </summary>

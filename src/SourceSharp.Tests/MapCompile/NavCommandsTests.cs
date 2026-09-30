@@ -235,10 +235,11 @@ public sealed class NavCommandsTests
         // Each turn's names and navigation right after that turn's link sections (a
         // -cooker none room has no collision sections); the role rooms' brush
         // models (their transition volumes and triggers) and transition data
-        // right after the counts, and every room's base lighting after them.
+        // right after the counts, and every room's base lighting and door light
+        // after them.
         Assert.All(index.Entries, e => Assert.Equal(
             [
-                "ROOM", "ECNT", .. e.Name == "hall" ? Array.Empty<string>() : ["BMOD", "TRAN"], "LITE",
+                "ROOM", "ECNT", .. e.Name == "hall" ? Array.Empty<string>() : ["BMOD", "TRAN"], "LITE", "DLIT",
                 "LNKA", "DVIS", "GEO0", "NAM0", "NVR0", "GEO1", "NAM1", "NVR1", "GEO2", "NAM2", "NVR2", "GEO3", "NAM3", "NVR3",
             ],
             e.Sections.Select(s => s.Tag)));
@@ -353,8 +354,8 @@ public sealed class NavCommandsTests
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
         // The index, the library's sections, and per placed room its
         // container, its entity counts, its brush models and transition data
-        // when it has them, its base lighting (every stored turn in one
-        // section), its shared link section and door visibility, and its
+        // when it has them, its base lighting and door light (every stored
+        // turn in one section each), its shared link section and door visibility, and its
         // turn's link, name and navigation sections: none of the other
         // turns'.
         long expected = index.IndexEnd + index.LibrarySections.Sum(s => s.Length);
@@ -364,7 +365,7 @@ public sealed class NavCommandsTests
             expected += entry.Room.Length + entry.Find("ECNT")!.Value.Length + entry.Find("LNKA")!.Value.Length
                 + entry.Find("DVIS")!.Value.Length + entry.Find($"GEO{turn}")!.Value.Length
                 + entry.Find($"NAM{turn}")!.Value.Length + entry.Find($"NVR{turn}")!.Value.Length
-                + (entry.Find("BMOD")?.Length ?? 0) + (entry.Find("TRAN")?.Length ?? 0) + entry.Find("LITE")!.Value.Length;
+                + (entry.Find("BMOD")?.Length ?? 0) + (entry.Find("TRAN")?.Length ?? 0) + entry.Find("LITE")!.Value.Length + entry.Find("DLIT")!.Value.Length;
         }
 
         Assert.Equal(expected, tap.BytesReadFrom(At("/rooms.roompack")));

@@ -183,6 +183,23 @@ public sealed record RoomObject(
     internal RoomLighting? LightingOfCompile => Lighting is { } lighting && lighting.IsFor(this) ? lighting : null;
 
     /// <summary>
+    /// The room's door light (<see cref="RoomDoorLight"/>: what its lights,
+    /// surfaces and sky send out through each opening, and its answer to
+    /// light entering through each), or null: recorded by a library compile
+    /// that lights its rooms, after the base bake, and stored by the pack in
+    /// its own section.
+    /// </summary>
+    /// <remarks>
+    /// A lit room without it links with its base alone, as PR 9 linked
+    /// every lit room: a jointed neighbour's light does not reach it, and
+    /// its own light does not reach its neighbours.
+    /// </remarks>
+    internal RoomDoorLight? DoorLight { get; init; }
+
+    /// <summary>The room's door light while it describes this compile, else null.</summary>
+    internal RoomDoorLight? DoorLightOfCompile => DoorLight is { } door && door.IsFor(this) ? door : null;
+
+    /// <summary>
     /// The room's <c>env_cubemap</c> samples and the names its compile made
     /// after them (<see cref="RoomCubemaps"/>: the samples per turn, the
     /// patched texdata strings and packed files), or null: made by the room

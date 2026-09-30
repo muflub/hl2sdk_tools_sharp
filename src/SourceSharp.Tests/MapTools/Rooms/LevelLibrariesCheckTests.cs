@@ -266,11 +266,11 @@ public sealed class LevelLibrariesCheckTests
         }
     }
 
-    /// <summary>D26, until the door light: the warning; once it lands: the refusal, the one switch between them off today.</summary>
+    /// <summary>D26: the refusal now the door light has landed (the switch on), and the warning a build without it gives.</summary>
     [Fact]
-    public void ASunlitRoomUnderADroppedSunWarnsUntilTheDoorLight()
+    public void ASunlitRoomUnderADroppedSunIsRefusedWithTheDoorLight()
     {
-        Assert.False(LevelLibraries.RefusesDroppedSun);
+        Assert.True(LevelLibraries.RefusesDroppedSun);
         Assert.Equal(
             "library caves: room caves.hub was baked under library caves's sun, and the level takes library base's; it links as baked. Build the libraries with one sun.",
             LevelLibraries.SunLine(false, "caves", "caves.hub", "base"));

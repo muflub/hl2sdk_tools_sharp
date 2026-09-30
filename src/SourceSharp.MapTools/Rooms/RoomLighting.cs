@@ -82,6 +82,15 @@ public sealed class RoomLightingSettings
     /// </summary>
     public VmfChunk? Sun { get; init; }
 
+    /// <summary>
+    /// Whether each room also records its door light (<see cref="RoomDoorLight"/>:
+    /// what leaves through each opening and its answer to light entering
+    /// one), so that a level's rooms light one another through their joints;
+    /// true unless the library compile turns it off (<c>ssmap room
+    /// -nodoorlight</c>), which keeps the pack to PR 9's base bake.
+    /// </summary>
+    public bool DoorLight { get; init; } = true;
+
     /// <summary>The library's sun among its entities (<see cref="RoomLibrary.LibraryEntities"/>): the first <c>light_environment</c>, or null.</summary>
     /// <param name="libraryEntities">The library-wide entities.</param>
     /// <returns>The sun, or null.</returns>
@@ -103,6 +112,11 @@ public sealed class RoomLightingSettings
     {
         StringBuilder text = new("light:");
         text.Append(RoomOptionsDigest.Of(Options));
+        if (DoorLight)
+        {
+            text.Append("|door:").Append(RoomDoorLight.Revision);
+        }
+
         if (Sun is not null)
         {
             text.Append("|sun:");

@@ -229,6 +229,7 @@ public static class FinalLightFace
                     for (int b = 0; b < bumpSampleCount; b++)
                     {
                         lb[b].AddLight(v[b]);
+                        context.BounceObserver?.Invoke(faceNum, b, j, v[b].Lighting);
                     }
                 }
 

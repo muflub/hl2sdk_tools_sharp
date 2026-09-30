@@ -56,9 +56,12 @@ internal static class RoomHarness
         files.AddText(
             $"materials/{PlayerClip}.vmt",
             "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%playerClip\" \"1\"\n}\n");
-        files.AddText(
-            $"materials/{Plain}.vmt",
-            "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n}\n");
+        if (extraFiles?.ContainsKey($"materials/{Plain}.vmt") != true)
+        {
+            files.AddText(
+                $"materials/{Plain}.vmt",
+                "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n}\n");
+        }
         files.AddText(
             $"materials/{Trigger}.vmt",
             "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compileTrigger\" \"1\"\n}\n");

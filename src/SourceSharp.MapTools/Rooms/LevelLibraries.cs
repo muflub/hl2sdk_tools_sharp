@@ -358,8 +358,8 @@ public static class LevelLibraries
 
         List<string> warnings = Check(facts);
 
-        // D26: a sunlit room baked under a sun the level drops, one line per
-        // library naming its first such room in link order.
+        // D26: a sunlit room baked under a sun the level drops, refused
+        // naming the first such room in link order (SunLine).
         for (int b = 1; b < keys.Count; b++)
         {
             if (SunDifference(facts[0].Entities, facts[b].Entities) is null)
@@ -449,11 +449,12 @@ public static class LevelLibraries
     /// Whether a sunlit room baked under a sun the level drops is refused
     /// rather than warned of (the rooms design's D26). The owner's rule is to
     /// refuse it once the door light (PR 10) lands, since the door terms then
-    /// carry that wrong sun into the room's neighbours too; until then the
-    /// link warns and links the room as baked. The one switch: when the door
-    /// light is on main, this returns true.
+    /// carry that wrong sun into the room's neighbours too; before it the
+    /// link warned and linked the room as baked. The door light has landed,
+    /// so this is on; the warning's text stays with <see cref="SunLine"/>
+    /// for a build that turns it back off.
     /// </summary>
-    internal static bool RefusesDroppedSun => false;
+    internal static bool RefusesDroppedSun => true;
 
     /// <summary>
     /// D26's line for a library whose sunlit room was baked under its own sun

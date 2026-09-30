@@ -1751,7 +1751,10 @@ file at link.
    opening (for example 2×4 patches × 6 directions = 48 functions), each
    mapped to the change it makes in the room's lightmaps, leaf ambient,
    static prop vertices, displacement and detail prop lighting, with
-   receivers that get almost nothing pruned.
+   receivers that get almost nothing pruned. (PR 10 measured this basis
+   and replaced it: direct light is evaluated at link from what each side
+   of the opening sees, and only the bounce goes through a sixteen-emitter
+   response; section 13, its landed note.)
 4. **Final bake at link.** For each joined door, in both directions: the
    neighbour's outgoing capture, projected onto this room's door basis,
    times this room's response, added to this room's base, per style. No ray
@@ -1825,7 +1828,9 @@ For `L = 20,000`, one style, four doors, `p = 0.3`, no props: base ≈ 0.12 MB
 (0.5 MB if sunlit), capture ≈ 20 KB (80 KB if sunlit), response ≈ 11.5 MB,
 stored once, or 46 MB as four pre-turned sets if the prototype shows those
 apply faster; uncompressed, since compression is off unless it measures
-faster (1.1). These are the costs of those choices, accepted if they buy
+faster (1.1). (Measured by PR 10, whose basis differs: the door light adds
+about 4% to the stress library's pack and 3% to the 3x3 sample's, with no
+responses for rooms that reflect nothing; section 13, its landed note.) These are the costs of those choices, accepted if they buy
 link time. The response dominates, so its basis size, pruning threshold and resolution
 (it is smooth; half the luxel resolution may do) are what the prototype must
 choose.
@@ -1879,7 +1884,11 @@ Lighting cannot be byte-equal to a full compile by design. Tests assert
 tolerances chosen from the prototype: the capped single room within float
 noise; a linked level within the measured p95 / p99 near doors and tighter
 elsewhere; no luxel brighter than the full compile by more than the
-tolerance (door terms must not invent light).
+tolerance (door terms must not invent light). PR 10's facts hold them
+against vrad of the linked level: p95 under 0.08 near joints and elsewhere
+and energy within 2% for rooms that reflect nothing, p95 under 0.2 and
+energy within 3% for reflecting rooms, the 99th percentile of any luxel's
+excess under 0.3, and a capped room the same bytes as without door light.
 
 ---
 
@@ -3123,6 +3132,172 @@ The 3x3 sample packs to 561 KB lit against 518 KB, its level to 125 KB
 against 98 KB; every level of the 3x3 and transit samples links lit and
 passes `ssmap check`, in both emission modes for the transit run.
 
+**PR 10 landed** (Q4 capture and response, the basis chosen by the
+prototype of 9.7). A lit room now also records its door light
+(`RoomDoorLight`, baked by `ssmap room` right after its base bake unless
+told `-nodoorlight`), and the link adds to each placement of a level the
+light its jointed neighbours send through their doors
+(`LevelLinker.PlanDoorLightAsync`, then `WriteLighting`): lightmaps, leaf
+ambient and static prop colours, per style. Nothing is traced and no game
+file is read at link. Reach is one door (D3).
+
+- **The basis the sweep chose: evaluated direct light plus a small
+  response grid.** The design's basis on the opening (patches times
+  directional lobes, 9.1 part 3) blurs what matters most: a lamp's light
+  through a door is a sharp-edged beam. So the pack records, per socket,
+  which part of the opening each side sees, and the link evaluates the
+  beam itself, as vrad's direct lighting would, with no ray traced:
+  - *receivers* (once per socket): every lit face's sample cells, and for
+    each which of the opening's 6 x 14 cells (16 units on the kit's 96 x 224
+    door) it sees past the room's own geometry;
+  - *captures* (per stored turn, per socket): the room lit doors-open (plug
+    brushes cast nothing, plug faces reflect nothing: the black box of 9.1),
+    and every world light, the sun through the room's own sky included,
+    that reaches a cell of the opening, kept whole with its falloff terms and
+    the cells it reaches; what the room's surfaces and sky send out is
+    gathered from each cell by 256 leaf-ambient rays and kept as stand-in
+    point sources, one per 64-unit cube of the room the rays met, each as
+    bright as the light it sends through the opening; a ray that leaves by
+    another doorway meets nothing (the black box), and a sky hit is placed on
+    the sky face;
+  - *ambient receivers* (per stored turn, per socket): which cells each leaf
+    ambient sample sees;
+  - *responses* (once per socket, only for a room that reflects light or
+    lights its props): the open room lit by nothing but a point emitter at
+    each node of a 2 x 2 x 2 grid over the neighbour's interior, inverse-square
+    and constant (sixteen vrad runs sharing their transfers): the light that
+    bounced onto each face (half resolution, from `VradContext.BounceObserver`,
+    so the emitter's direct light, which the link evaluates, is not in it),
+    the leaf ambient samples and the prop colours, per unit of intensity.
+  At link, each neighbour source is turned into the receiving room's
+  door-local frame (`DoorFrame.ToNeighbour`: `(2 Depth - x, -y, z)`, whatever
+  the two turns), and at each receiving cell (3 x 3 receivers a cell) the
+  light passes only where the segment toward the source crosses a cell the
+  receiver sees and a cell the source reaches (`DoorLightMath.Through`);
+  luxels are the mean of the cells around them, as vrad's cells make its
+  luxels. Its flux through the opening is shared over the response grid's
+  eight nodes around it (trilinear, flux-matched), and each emitter's
+  response added. Leaf ambient takes the stand-ins through the opening (in
+  the cube's world-light units, a 255th of a luxel's) and the responses;
+  props the responses.
+- **The sweep** (`vrad` of the linked level itself as the reference, since
+  it has the same faces; relative error of style-0 luxels as in PR 9's
+  facts, "near" within a door width of the joint; two rooms jointed at a
+  turn, lamps 200 to 800 bright; "reflective" is a shell of reflectivity
+  0.6/0.55/0.5):
+
+  | Basis | Scene | near p95 | near p99 | elsewhere p95 | energy |
+  | --- | --- | --- | --- | --- | --- |
+  | base alone (PR 9) | any lamp, dark neighbour | 1.00 | 1.00 | 1.00 | 0.65 to 0.92 |
+  | patches 2 x 4, cosine lobes | lamp, dark neighbour | ~1.0 | 1.0 | ~1.0 | up to 3.0 |
+  | point grid 3 x 3 x 3 | lamp on a node | 0.03 | 1.0 | | |
+  | point grid 3 x 3 x 3 | lamp off the nodes | | 1.0 | | |
+  | chosen, masks 6 x 14, 3 x 3 subsamples | constant lamp, centre | 0.013 | 0.26 | 0.20 | 0.998 |
+  | chosen | constant lamp, off centre | 0.020 | 0.11 | 0.020 | 1.001 |
+  | chosen | inverse-square lamp | 0.007 | 0.055 | 0.021 | 1.000 |
+  | chosen | spotlight | 0.000 | 0.043 | 0.010 | 0.999 |
+  | chosen | PR 9's fixture: lamp, prop, door, sky, sun, switchable lamp | 0.038 to 0.053 | 0.33 to 0.43 | 0.024 to 0.057 | 0.997 |
+  | chosen, response grid 1 | inverse-square lamp, reflective | 0.22 | 0.25 | 0.23 | 1.019 |
+  | chosen, response grid 2 | inverse-square lamp, reflective | 0.14 | 0.24 | 0.13 | 1.013 |
+  | chosen, response grid 3 | inverse-square lamp, reflective | 0.21 | 0.24 | 0.16 | 1.018 |
+  | chosen, response grid 2 | lamps in both rooms, reflective | 0.10 | 0.13 | 0.09 | 1.014 |
+
+  The other knobs moved nothing or made it worse: masks 3 x 7, 12 x 28 and
+  24 x 56 measure as 6 x 14 (3 x 7 loses a little on a spotlight's far
+  edge); one receiver per cell leaves p99 up to 1.0 on beam edges and 2 x 2
+  up to 0.5, 3 x 3 under 0.26; 64, 256 capture rays and 32 to 128 of the
+  earlier virtual point lights agree within 2%; pruning response faces at
+  1e-3, 1e-2 or 5e-2 of the brightest changes nothing measurable (1e-3 is
+  kept); half-resolution responses lose nothing. The near p99 of 0.26 to
+  0.43 is luxels a few percent of the peak, where the beam's edge on a
+  far wall falls between vrad's samples. On the 3x3 sample (no reflection,
+  constant lamps) against vrad of levels holding one door each (D3's
+  reach): near p95 0.045, p99 0.14, elsewhere p95 0.045 to 0.105, energy
+  0.99; against vrad of the whole linked level the link is 5 to 11% short of
+  energy (light that crosses two doors, which D3 leaves out), near p95
+  0.19.
+- **Tolerances (9.8), held by facts.** A capped room links to the same
+  bytes with its door light as without, at every turn, so it is still
+  exact (`LevelLinkerDoorLightTests.ACappedRoomLinksTheSameBytesWithItsDoorLight`).
+  A jointed level against vrad of the link: near and elsewhere p95 under
+  0.08, energy within 2%, under 3% of luxels more than 5% brighter, the base
+  alone at least twice as far off near the joint
+  (`AJointedLevelAgreesWithVradOfTheLinkWithinTheTolerances`); reflecting
+  rooms: p95 under 0.2 near and elsewhere, energy within 3%, the 99th
+  percentile of any luxel's excess over vrad under 0.3 (measured 0.12:
+  "invents no light") (`LevelLinkerDoorLightBounceTests`); the door light
+  only adds to the base, every luxel of every style
+  (`TheDoorLightOnlyAddsToTheBase`); a neighbour's switchable lamp crosses
+  under its renumbered style; the hub's leaf ambient gains the sky seen
+  through the door within a factor of three of vrad's (measured 2.1, one
+  stored sample against vrad's seven) and its prop's colours end nearer
+  vrad's.
+- **Styles (9.3).** Door terms keep the sending light's style, renumbered
+  for the level as the base's are; they are summed into the receiving
+  face's slot of that style, or a new slot; a face that would need more
+  than four drops its weakest door-only style with 15.4's warning, `face
+  {face} of room {room} at cell ({x}, {y}) needs {k} light styles; the
+  lightest door style {s} was dropped.`, printed by `ssmap link`. Only
+  style 0 bounces (as in vrad) and only style 0 reaches leaf ambient.
+- **Once or four times (D16, O14).** Captures and ambient receivers follow
+  the base bake (x4 for a sunlit room); receivers and responses are stored
+  once: a fact lights a response at each quarter turn in the bake frame and
+  finds every face's bounced light the same and the leaf samples within
+  4e-6. Every door-lit face gets its own block of lightmaps (its base
+  decoded, the door terms summed, encoded once, averages the medians vrad
+  writes), so stored-turn sharing now holds for faces no door light
+  reaches.
+- **vrad hooks.** `VradContext.BounceObserver` hands the bake each luxel's
+  bounced light as it is added, and `NoTextureLights` lets a response run
+  leave the room's texture lights dark. Neither is set by `ssmap vrad`, so
+  vrad's output is unchanged (2fort under T4 `13dd86de1bde7eb2` at 4 threads
+  and 1).
+
+Storage: an optional `DLIT` section per lit room, right after `LITE`, with
+the 1.1 framing (codec none, revision 1): the sockets' receivers (per face
+its cell codes, 0 none, 1 every cell, 2 some, then the partial masks as
+128-bit words), a range flag byte, and per range the captures and ambient
+receivers per stored turn and socket (each source 85 bytes) and the
+responses per socket (none or sixteen emitters, each its faces' half-float
+luxels, its samples' leaf, position and cube, its props' colours). The pack
+version stays 4; a pack without `DLIT` links its lit rooms with their base
+alone, as PR 9 did. A section that does not fit its room is refused naming
+the room and `DLIT` (the facts cover each field). The setting is part of the
+lighting's description (`|door:1`), so the pack id and the cache keys
+change with it and a level of rooms lit with and without it is refused as
+lit differently.
+
+Decisions taken where this document is open, or where it left a detail:
+the door light is on by default for lit rooms, `-nodoorlight` the off switch
+(a usage error with `-nolight`), a `-nodoorlight` pack what PR 9 wrote (the
+same sizes, 561 KB and 29.4 MB); the design's patch-by-lobe basis is replaced by evaluated
+direct light plus the sixteen-emitter grid, measured above (O14: one
+response set per door); a room of surfaces that reflect nothing and no lit
+props stores no responses (the samples and the stress library); the
+capture's rays read what vrad's leaf ambient reads (a surface's average
+times its reflectivity, the sky ambient on sky); doorway faces still do not
+exist, so the one-door reference and vrad of the link differ from a full
+compile there as in PR 9. Error left (9.6): light crossing two doors (5 to
+11% of the energy on the 3x3 sample), the second bounce back through the
+same door, and in reflecting rooms the grid's coarseness (p95 0.10 to 0.14
+near and elsewhere, the receiving side 1 to 4% bright).
+
+Measured (4-core machine, the whole `ssmap` process, three runs each): the
+256-room stress library packs in 13.6 s with door light against 8.0 s
+with `-nodoorlight` and 6.4 s unlit on this machine, 30.7 MB against 29.4 MB
+(+4.3%; no room reflects or lights props, so no responses) and 27.2 MB; its
+33 x 33 level links in 3.1 to 3.2 s against 1.9 to 2.0 s base only and 1.6
+to 1.7 s unlit, 20.6 MB against 15.4 MB (the door-lit faces' own lightmap
+blocks) and 14.4 MB, all clean under `ssmap check`; of the 1.2 s, 0.65 s
+is the door terms (after skipping a source at a cell whose four corner
+receivers miss the same edge of an opening, `DoorLightMath.Outcode`) and
+0.4 s the larger lighting lump. The 3x3 sample packs in 1.95 s against
+1.52 s, 578 KB against 561 KB, its level links in 0.65 s to 167 KB against
+125 KB; every level of the 3x3 and transit samples links lit and passes
+`ssmap check` (its one warning, no cubemap sample), in both emission modes
+for the transit run. `ssmap all` on 2fort and the sandbox writes the same
+maps as before.
+
 **PR 13 landed** (area portals and areas, then the 3D skybox, in that
 order on one branch).
 `ssmap room` describes a room whose compile has area portals in one `APRT`
@@ -3379,10 +3554,21 @@ options and skybox; the linker then runs as for one library.
   worldspawn line. The save counter is the first library's in both maps.
   The level's sun world lights and sky are the first library's first lit
   placement's bake (`PlanLighting`), else the first lit placement's as
-  before. PR 9's lighting rule is unchanged across libraries. D26's line
-  is the link's only (the flatten bakes nothing); the switch to a refusal
-  once PR 10 is on main is one line, `LevelLibraries.RefusesDroppedSun`,
-  and the refusal's text is written and held by a fact already.
+  before. PR 9's lighting rule is unchanged across libraries. PR 17 is
+  stacked on PR 10, so D26 is in refuse mode: a sunlit room baked under a
+  sun the level drops is refused by the link, naming the library's first
+  such room in link order (the flatten bakes nothing, so it has no such
+  refusal). The mode is one switch, `LevelLibraries.RefusesDroppedSun`,
+  and the warning a build without the door light would give stays written
+  (`SunLine`) and held by a fact.
+- **Door light across libraries.** The door terms (PR 10) are planned per
+  placement from each room's own stored door light, so a joint between two
+  libraries' rooms carries light both ways as any joint does; the door
+  light's per-room caches (face cells, leaves) are keyed by the placed
+  name like everything else. A fact links base's hub to caves' other at two
+  turns, each library door-lit on its own: the same bytes as the
+  one-library level of those rooms, and within 9.8's door-light
+  tolerances against vrad of the linked level, where the base alone is not.
 - **Navigation.** `LevelNavLinker.Link` takes which library each room
   comes from: rooms of one library are held to one another's settings as
   before, rooms of different libraries only to one grid, and the header
@@ -4085,9 +4271,9 @@ everything a level has once, whichever room it came through:
   sun. A **sunlit** room (rotation count 4, 1.1) baked under a sun that
   differs from the first library's (`LevelSingletons`' equality) is lit by
   a sun the level does not have: D26 refuses it once the door light
-  (PR 10) lands, and until then the link warns, one line per library
-  naming its first such room (17.3); the flatten bakes nothing, so it has
-  no such line, and vrad of the flattened level lights every room under
+  (PR 10) lands, naming the library's first such room in link order (17.3;
+  PR 17 landed on PR 10, so it refuses), and before the door light the link
+  warned instead; the flatten bakes nothing, so it has no such line, and vrad of the flattened level lights every room under
   the level's sun. The level's two sun world
   lights and its sky are the bake's (PR 9 takes them from the first lit
   placement); across libraries they are taken from the first placed room of
