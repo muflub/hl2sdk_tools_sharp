@@ -307,6 +307,17 @@ public sealed record RoomObject(
     internal RoomWater? WaterOfCompile => Water is { } water && water.IsFor(this) ? water : null;
 
     /// <summary>
+    /// The room's part of its level's map (<see cref="RoomMapView"/>: its
+    /// floors, doors and markers, room-local), or null: made by the library
+    /// compile from the room's compile and VMF, and stored by the pack in its
+    /// own section. A level placing a room without it links without a map.
+    /// </summary>
+    internal RoomMapView? MapView { get; init; }
+
+    /// <summary>The room's map while it describes this compile, else null.</summary>
+    internal RoomMapView? MapViewOfCompile => MapView is { } view && view.IsFor(this) ? view : null;
+
+    /// <summary>
     /// The room's navigation, or null: built beside the link work by a
     /// library compile whose library builds navigation, and read by a pack
     /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at

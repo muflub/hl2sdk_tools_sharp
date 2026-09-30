@@ -348,7 +348,7 @@ public sealed class RoomLightingTests(LitRoomsFixture fixture) : IClassFixture<L
         RoomPackItem hub = await RoomPackItem.CreateAsync(fixture.Lit.Get("hub"));
         RoomPackItem other = await RoomPackItem.CreateAsync(fixture.Lit.Get("other"));
         RoomPackItem unlit = await RoomPackItem.CreateAsync(fixture.Unlit.Get("hub"));
-        Assert.Equal(["ECNT", "PROP", "BMOD", "LITE", "LNKA"], hub.Extra.Take(5).Select(s => s.Tag));
+        Assert.Equal(["ECNT", "PROP", "BMOD", "LITE", "MAPV", "LNKA"], hub.Extra.Take(6).Select(s => s.Tag));
         Assert.DoesNotContain(unlit.Extra, s => s.Tag == RoomLighting.SectionTag);
 
         using MemoryStream pack = new();
