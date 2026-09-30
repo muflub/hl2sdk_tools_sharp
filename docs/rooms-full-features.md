@@ -142,16 +142,19 @@ In the order it checks:
 
 1. any non-empty lump outside `LevelLinker.CarriedLumps`. Not in the set:
    `WorldLights(Hdr)`, `DispInfo`, `DispVerts`, `DispTris`,
-   `DispLightmapAlphas`, `DispLightmapSamplePositions`, `LeafWaterData`,
-   `WaterOverlays`, `LeafAmbientIndex(Hdr)`,
+   `DispLightmapAlphas`, `DispLightmapSamplePositions`,
+   `LeafAmbientIndex(Hdr)`,
    `LeafAmbientLighting(Hdr)`, `LightingHdr`, `FacesHdr` (`Cubemaps` left
-   the list with PR 12, `ClipPortalVerts` with PR 13; since PR 11
+   the list with PR 12, `ClipPortalVerts` with PR 13, `LeafWaterData` and
+   `WaterOverlays` with PR 14; since PR 11
    `Overlays` and `OverlayFades` are carried, and a room with overlays is
    refused only when it carries no overlay data from its compile);
 2. more than one model, or a world model whose head node is not 0 (since
    PR 7 brush models are carried, and a room with them is refused only when
    it carries no brush model data from its compile);
-3. a leaf with `LeafWaterDataId != -1`;
+3. a leaf with `LeafWaterDataId != -1` (since PR 14 water is carried, and
+   a room with water is refused only when it carries no water data from its
+   compile, `RoomWaterOf`);
 4. more than two areas or more than one area portal (`RefuseAreaPortals`;
    since PR 13 areas and area portals are carried, and a room with them is
    refused only when it carries no area portal data from its compile,
@@ -270,8 +273,8 @@ or research).
 | Static props | carried since PR 6 (moved, filtered, dictionaries merged, leaves recomputed, `.vhv` renamed) | props per rotation, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
 | Detail props | refused (game lump) | props per rotation, leaf-local runs; lighting ×1, or ×4 if sunlit | renumber leaves, re-sort, merge dictionaries | 0 | M |
 | Displacements | refused at split (`VmfPlacement.MoveSide`) | lumps and collision per rotation, sample positions | rebase; cross-room neighbours only if allowed | 0 | L |
-| Water | refused (water leaf, lump) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
-| Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays refused with water) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
+| Water | carried since PR 14 (records merged, leaf and face ids renumbered, fluids moved into the collision, water overlays carried, vvis's water passes run over the level; water touching a door plug refused) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
+| Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays since PR 14) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
 | Decals (`infodecal`) | carried | nothing | nothing | 1 each (**uncertain** after spawn) | S |
 | `env_cubemap` | carried since PR 12 (samples moved, patches and copies renamed to the level) | samples per rotation, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
 | Area portals | carried since PR 13 (areas joined at joints, portals and `portalnumber`s rebased, clip verts moved; door portals opt-in) | areas, portals, clip verts per rotation | area union across joints, optional door portals | 1 per portal | L |
@@ -588,8 +591,10 @@ texinfo) referenced by `DLeaf.LeafWaterDataId`, each warped face's
 records in `PhysCollide` (`PhysCollisionEmitter`, `PhysFluidEntry`). vvis
 writes `LeafMinDistToWater` (`VisFlow`).
 
-**Today.** Refused: water leaf check and `LeafWaterData` outside the set.
-`LeafMinDistToWater` is carried (always written).
+**Today.** Carried since PR 14 (section 13, its landed note): water in a
+room, then water through a door (water sockets). Before it, refused: water
+leaf check and `LeafWaterData` outside the set; `LeafMinDistToWater` was
+carried (always written).
 
 **Pack vs link.** Per room: water data, fog ids, patched materials, fluid
 records. At link: rebase `LeafWaterDataId`, fog ids and texinfos; merge
@@ -608,7 +613,9 @@ carve (`LevelLinker.CarveLeaf`) splits the doorway box at the surface plane,
 the lower part becomes a water leaf of the facing water data, and the
 linker adds a surface face and a fluid convex. All computable at link.
 Proposed (O7): first refuse water touching a socket plug box; add "water
-sockets" later.
+sockets" later. Both done in PR 14 (section 13, its landed note): a room
+declares a socket's water level on its `info_room`, and the link carves the
+doorway's water as above.
 
 **Lighting.** Water surfaces are lit like faces.
 
@@ -874,7 +881,7 @@ offsets.
 | Leaf ambient | Samples per leaf (a compressed cube and a position in the leaf box). From the base bake (×4 only for a sunlit room), rebased by leaf, plus door response. Under a turn the position bytes permute with the box axes and the cube's horizontal faces permute. The carved doorway leaf copies its facing leaf's samples. `DLeafAmbientIndex.FirstAmbientSample` is `ushort`. **M**, with lighting. |
 | `LightingHdr`, `FacesHdr` | Not carried; from the bake under option C. |
 | `MapFlags` | Must agree (`RequireAgreement`); vrad sets the baked-prop-lighting flag (`RadLumpWriter.WriteLevelFlags`). |
-| `LeafMinDistToWater` | Carried; recompute at link once water exists (4.6). |
+| `LeafMinDistToWater` | Carried; recomputed at link, with the leaves that see water, for a level with water since PR 14 (4.6). |
 | Fog, tonemap, `shadow_control`, `water_lod_control` | Singletons: section 8. |
 | AI nodes (`info_node` and kin) and nav data | Carried as point entities today (nothing in vbsp here consumes them). Navigation is required and 3D, for a new AI system, and blocked on its design (section 10); points of interest go into the navigation data and are stripped (10.6). |
 
@@ -3873,6 +3880,246 @@ level of it links to a version 3 `.nav3d` and passes `ssmap check` with the
 same one warning. The stress library's 33 x 33 level links in 1.6 to 1.8 s
 against 1.65 to 1.7 s, alternating runs, to the same bytes.
 
+**PR 14 landed** (water, first without water sockets, then with; two
+stages on one branch).
+
+*Stage one: water contained in rooms.* `ssmap room` describes a room whose
+compile has water in one `WATR` section (`RoomWater`, with the 1.1 framing:
+codec byte, decoded length, revision; codec none): the room's water record
+count (its `LeafWaterData` lump stays in the container byte for byte and is
+checked: every leaf's `LeafWaterDataId` and every face's
+`SurfaceFogVolumeId` names a record the room has), its fluids (one per
+connected water volume, as the `fluid` blocks of its world collision name
+them: surface property, damping, contents, surface plane), its water
+overlay count (the `WaterOverlays` lump in the container, each id checked to
+be 513 plus its place), then the rotation count (4) and per turn every
+fluid's convexes and every water overlay's origin, `BasisU` and normal
+turned. A room without water gets no section, so a library without it packs
+to the same bytes. The link (`LevelLinker.Water.cs`):
+
+- **Records** are the level's table built as vbsp builds a map's
+  (`PlanWaterData`): every placement's in link order, each with its surface
+  texinfo the shared table's and its heights moved with the placement's
+  (whole cells; only the skybox's differ), one record per distinct
+  (surface height, lowest point, surface texinfo) by exact match, the first
+  kept. A placement's leaves and warped faces name the level's record
+  through its map. In practice two placements of one pool share a record
+  only when the move leaves the surface texinfo as it was (texture axes
+  across the move), as in the flattened level's compile; a fact holds both
+  cases to vbsp's count. Past `MAX_MAP_LEAFWATERDATA` (32,768) the link
+  refuses with `room {room} at cell ({x}, {y}) pushes the link to {n} leaf
+  water data records; vbsp writes at most 32768 (MAX_MAP_LEAFWATERDATA).`
+- **Fluids** follow the static solids in the linked world record, placement
+  by placement, as vbsp writes a world's after its contents classes: each
+  one's convexes moved, their brushes and materials renumbered as the
+  static solids' are, rebuilt into one surface, with its `fluid` block's
+  plane turned and moved (a vertical normal keeps its distance on the grid;
+  its zeros unsigned, as vbsp computes the flattened level's). The
+  collision keydata reader now takes `fluid` blocks (index, surface
+  property, damping, contents, plane) and refuses one missing a key.
+- **vvis's water passes** (`CONTENTS_TESTFOGVOLUME` on every leaf a water
+  leaf sees, and `LeafMinDistToWater`) run again over the linked leaves and
+  the level's rows (`RecomputeWaterSight`, vvis's own `VisWater`), for a
+  level with a water leaf only: a room's compile worked them out blind to
+  its neighbours' water through a door. A level without water keeps its
+  rooms' bytes (every leaf 65535, none marked), which the passes would give
+  it anyway.
+- **Water overlays** (`overlaytransition`) are carried as overlays are
+  (PR 11): placement `p`'s water overlay `k` is id 513 + its base + `k` (the
+  flatten writes the placements' in link order, which is how vbsp numbers
+  them), texinfo shared, origin turned and moved, basis turned, faces
+  rebased; past `MAX_MAP_WATEROVERLAYS` (16,384) refused with `room {room}
+  at cell ({x}, {y}) pushes the link to {n} water overlays; a map holds at
+  most 16384 (MAX_MAP_WATEROVERLAYS).` The split moves their bracketed
+  vectors (`VmfPlacement.MoveWaterOverlays`), gives the ones the library's
+  world holds to the room whose cell holds each one's `BasisOrigin` as an
+  `info_overlay_transition` of their own, first among the room's entities
+  (vbsp reads the world's before any entity's), and the flatten renames
+  their `sides` lists as it renames an entity's.
+- **Singletons.** vbsp adds a `water_lod_control` to every room with water;
+  the level keeps one (PR 4's rule), as the flattened level's compile has
+  one, and the budget counts that one.
+- **Cheap and expensive water.** Both are carried the same way; vbsp's
+  per-depth patched materials (`maps/<room>/<material>_depth_<n>`) are
+  room-named pak files the pak merge carries (4.13).
+- **Lighting.** Water surfaces are lit like faces (4.6): the base bake
+  lights a room's water as vrad does (a `%compileKeepLight` water has
+  lightmaps, other water shaders none), and a capped room with a lit pool
+  links to vrad of its own link, luxel for luxel.
+
+Refusals: water that reaches a door plug, 15.4's 4.6 socket row, `room
+{room}: water reaches socket "{socket}"; water may not touch a door plug.`,
+made by the room compile on the loaded map (the materials say a brush is
+water, so the split, which reads no game file, cannot; the flatten of such a
+library compiles, and its pack is refused): a world water brush,
+`func_detail` included, whose box overlaps a plug box or touches one of its
+faces over an area (an edge or a corner is not a touch). A room whose
+compile has water and no water data bound to it (a pack written before this
+PR) is refused with `room {room} has water but no water data from its
+compile (a pack written before the link carried water, or a room built
+without ssmap room); recompile the library with ssmap room.`, and the old
+`... has a water leaf, which the relocation refuses` is gone (a fact
+asserts it). Water overlays the tables do not list: `the library has a
+water overlay at ({x} {y} {z}) in the gaps between rooms; a water overlay
+belongs to the room whose cell holds its BasisOrigin.`, `room {room}:
+entity {id} ({class}) has a water overlay at ({x} {y} {z}) outside the
+room's cell; ...`, a vector that is not three numbers in brackets, and the
+overlay plug rule for water overlays, `room {room}: a water overlay names
+brush side {side}, which is socket "{socket}"'s plug.` Damaged `WATR`
+sections are refused naming the room and the section.
+
+The pack format version is not raised (PR 19 raised it to 5 for shaped
+rooms): `WATR` is a tag an older build skips, and that build refuses a room
+with water by its lumps. Storage is four turns,
+the 1.1 default for convexes and overlay records (a count of 1 is read and
+links to the same bytes, a fact). Measured equivalence: two rooms with
+pools of a cheap and an expensive water at the four turns, and a pool with
+two water overlays at the four turns, linked and flattened and compiled
+whole: every point of a 16-unit lattice over the level holds the same
+thing (solid, air, or water of the same surface height and material), the
+same records, the same fluids (plane, contents, surface property, volume
+and extent), the same water overlays bit for bit but their face lists,
+whose faces cover the same area; through the CLI (`ssmap room`, `ssmap
+link`, `ssmap check` with no error, `--flatten`) the same. The same bytes
+at one thread and four, pack and link. Known differences, not refused: the
+depth-patched materials keep their room names in the link and take the
+level's in the flattened compile (nothing in either map names them: vbsp's
+texinfo compaction drops the texinfo it made for them), and the order of
+fluids in the world record (the link's by placement, vbsp's by its tree).
+
+*Stage two: water sockets* (water continuing through a door, O7's "kit
+water levels later").
+
+- **Declaring.** A room declares a socket's water on its `info_room`:
+  `water_east`, `water_west`, `water_north` or `water_south`, each
+  `"<level> <material>"`, the height of the water's surface above the
+  cell's floor and its material, such as `48 nature/water_canals_cheap001`
+  (`LibraryRoom.WaterSockets`, `RoomWaterSocket`). The split refuses a key
+  on a wall without a door plug (`room "{room}" declares water on its
+  {wall} wall (water_{wall}), but its {wall} wall has no door plug.`), a
+  value that is not a height and a material, another wall name, and a
+  level at or below the door's sill (`... declares water at {level} on its
+  {wall} wall, at or below the door's sill ({sill}); water that does not
+  reach the doorway needs no water socket.`). The declaration is an input
+  of the room's cache key (folded only when present, so no other room's key
+  moved). The level is room-local and a turn is about +z, so a placement
+  never changes it.
+- **The plug rule.** Water may reach a declared socket's plug and no other
+  (15.4's refusal stands for the rest). The room compile holds each
+  declared socket to its water (`RoomWater.Door`): sampled half a unit
+  inside the plug's inner face at every half unit of the door's width and
+  height, and a quarter unit either side of the level, the room is water of
+  one record below the level and open air above it (`room {room}: socket
+  "{socket}" declares water at {level}, but ({x} {y} {z}) against its plug
+  holds {solid/air/water}; the water must fill the doorway to that height
+  and no higher.`, and `... meets two bodies of water; a water socket's
+  doorway meets one.` for water and slime side by side); the record's
+  surface is at the level (`... but the water against its plug has its
+  surface at {z}.`; a doorway wholly under water, the level at or above the
+  door's top, takes any surface at or above the top, vbsp's 16384 for a room
+  filled to its ceiling included); its material is the declared one, read
+  through vbsp's patch chain (`room {room}: socket "{socket}" declares
+  {material}, but the water against its plug is {actual}.`); and it is
+  unlit (`room {room}: socket "{socket}"'s water {material} is lit
+  (%compileKeepLight); the surface the link adds in a doorway has no
+  lightmap, so a water socket's water is unlit.`). The `WATR` section then
+  holds, per socket, the level, the record, the room's surface faces at the
+  level seen from above and from below (found by winding), the water
+  leaf's contents and the fluid the water is part of.
+- **The joint rule.** At a joint the two sockets are both dry or both
+  water at one level, compared exactly (`LevelWaterJoints`), refused
+  otherwise by the link (levels from the rooms' `WATR`) and the flatten
+  (levels from the declarations), with one text: `room {a} at cell ({x},
+  {y}) and room {b} at cell ({nx}, {ny}) meet with water at {la} at socket
+  "{sa}" and {lb} at socket "{sb}"; the water on the two sides of a joint
+  is at one level.` (`none` for a dry side). A capped water socket keeps
+  its plug; its water stays in its room.
+- **The carve.** Each doorway piece the plug carve leaves (`CarveLeaf`;
+  one per solid leaf the plug made) is cut by the level (`CarveWater`): a
+  piece the level crosses gets a node on the level's plane (shared in the
+  plane table), open air in front (the piece's own index, as every
+  doorway) and a new water leaf behind; a piece wholly below the level is a
+  water leaf; one whose top is the level (the room's compile split the plug
+  there) is a water leaf under a node whose front is a leaf as thin as the
+  plane, which only lists the surface; one at or above the level is open
+  air as before. A water leaf takes the room's water leaf contents and the
+  level's record for the socket's water, the doorway's cluster and area;
+  every new leaf is recorded as a doorway for the lighting's leaf ambient.
+  The node lists the doorway's surface: a face seen from above (listed in
+  the leaf above) and one from below (listed in the water leaf), each
+  following the room's own surface face (its plane, side, texinfo, fog
+  volume, styles and flags), over the piece's rectangle, wound as that
+  face is, with its own edges, surfedges, original face, face id, macro
+  and vertex normals (its template's first vertex's). A room whose water
+  shows no surface there (a nodraw top) gives its doorway none either: the
+  node then lists no face. The faces sit in
+  model 0's range after every world face and before the brush models', so
+  their count is made before the bases are assigned by the same carve run
+  on scratch lists (`CountWaterDoorwayFaces`). Each water leaf gets a water
+  brush (its box, six axial sides of the record's surface texinfo, the
+  water's contents without vvis's flag), added after the brush fold, so
+  traces meet the doorway's water as they meet the flattened level's; and a
+  convex of its box joins the fluid of the room's water at the socket, so
+  physics floats through the doorway.
+- **One body of water.** The records a water joint joins are made one
+  (`JoinedWater`, union-find over placement and record, the earlier root
+  kept): the group's lowest point, the surface texinfo of its first member
+  in link order, as vbsp finds one volume through the flattened level's
+  doorway; a chain and a ring of water doors link to one record. The
+  fluids stay each room's (the doorway's convexes in one of them), where
+  the flattened compile makes one of the body of water: the facts compare
+  their summed volume and extent per surface plane.
+- **The flatten** fills each joined water socket's plug box with a water
+  brush of the declared material up to the level (the whole box for a
+  doorway under water), moved with the room, which vbsp joins to the rooms'
+  water.
+- **Visibility and light.** Water leaves are open to vis (vvis sees through
+  water, and so do Q3's door flows, which look through the doorway's
+  rectangle), so the linked PVS is unchanged; the doorway's water leaves take
+  the facing cluster. vvis's water passes run over the level
+  (`RecomputeWaterSight`), so the leaves that see water through a door are
+  marked and measured with the doorway's surfaces among the water faces.
+  vrad lets light through water (its shadow mask holds no water), so the
+  door light (PR 10) through a water door is what it is through any door;
+  the doorway's surfaces are unlit, as a water socket's water must be.
+
+Decisions taken where the document is open: O7 as recommended (refuse
+first, then kit water levels), the level declared per socket on the
+room's marker with its material, so the split, the flatten and a level's
+joint rule read it without a compile (the design says "the kit knows the
+water level at a socket"; a room's marker is where its sockets are named);
+water levels compared exactly; a lit water refused at a water socket; the
+joined record's texinfo the first member's in link order. Measured
+equivalence: the hub and the other room jointed through their water doors
+at the four turns, a chain of three rooms, a ring of four and a doorway under
+water, linked and flattened and compiled whole: the same thing at every
+point of the lattice (the doorway's water to the level, open air above),
+one record in both, the fluids' volume and extent, and the doorway's surface
+wholly covered from above and below in both maps; a lit level with a water
+door links and passes `ssmap check`; through the CLI (`ssmap room` reading
+the declarations, `ssmap link`, `ssmap check`, `--flatten`) the same. The
+pack is the same bytes at one thread and four, and so is the link. Known
+differences, not refused: the doorway's surfaces take the room's surface
+face's texinfo, where the flattened compile's are cut from the doorway brush
+(the underside's texture alignment can differ); the joined record's texinfo
+(the first member's, where vbsp's flood picks one); and the fluids' count
+(above). Not done here: `ssmap layout` does not read water sockets, so a
+generated level may joint a water socket to a dry one, which the link then
+refuses; the 3x3 sample's `hall` did not grow its pool (the harness levels
+carry the facts at every turn, and the samples' digests show a level
+without water links as before); the stress library has no water; `ssmap
+rooms` does not list water.
+
+Measured against main (the merge base, with PR 18, D29 and PR 19): `ssmap all` on
+2fort and the sandbox writes the same maps, and 2fort's vbsp alone the same
+bytes; the 3x3, transit and stress packs differ only in the build identity
+(`CMPL` and each room container), no room of them gaining a `WATR` section;
+every level of the 3x3 and transit samples (both modes) and the stress
+library's 33 x 33 level, linked by this build from main's packs, is main's
+map byte for byte, and each passes `ssmap check` with its one warning (no
+cubemap sample); the 33 x 33 level links in the same time within the noise
+(1.5 to 1.7 s against 1.6 to 1.7 s, interleaved runs on a busy 4-core box).
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
@@ -4091,6 +4338,8 @@ then.
 | 4.3 texel | R | `room {room}: prop_static {id} asks for texel lighting, which this vrad does not bake.` |
 | 4.5 socket | R | `room {room}: the displacement on brush side {side} has an edge on socket "{socket}"'s plug box; displacements may not meet at a joint.` |
 | 4.6 socket | R | `room {room}: water reaches socket "{socket}"; water may not touch a door plug.` |
+| 4.6 water joint | R | `room {a} at cell ({x}, {y}) and room {b} at cell ({nx}, {ny}) meet with water at {la} at socket "{sa}" and {lb} at socket "{sb}"; the water on the two sides of a joint is at one level.` (`none` for a dry side; PR 14) |
+| 4.6 water socket | R | `room {room}: socket "{socket}" declares water at {level}, but ({x} {y} {z}) against its plug holds {solid/air/water}; the water must fill the doorway to that height and no higher.` and the other water socket texts of PR 14's landed note |
 | 4.9 plug | R | `room {room}: info_overlay {id} names brush side {side}, which is socket "{socket}"'s plug.` |
 | 4.11 socket | R | `room {room}: func_areaportal {id} lies in socket "{socket}"'s plug box.` |
 | 4.13 conflict | R | `rooms {a} and {b} both pack {file} with different bytes.` |
