@@ -455,6 +455,13 @@ public sealed record ResolvedPlacement(
 {
     /// <summary>The room's sockets, room order.</summary>
     public IReadOnlyList<RoomSocket> Sockets => Room.Definition.Sockets;
+
+    /// <summary>
+    /// The placement's own lighting payload when the skybox parallax moved
+    /// its sun (<see cref="LevelLinker.PlanSkyboxParallax"/>), else null: the
+    /// stored turn, as every placement at its bakes' cell takes it.
+    /// </summary>
+    internal RoomLightingPayload? Parallax { get; init; }
 }
 
 /// <summary>The numeric checks the room records share.</summary>

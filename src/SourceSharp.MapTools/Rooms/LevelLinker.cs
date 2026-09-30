@@ -361,8 +361,13 @@ public static partial class LevelLinker
         // rooms' stored door light; null when no two jointed rooms carry it.
         // Planned here because the props' lighting files go into the pak,
         // which is merged before the rooms are planned.
-        LevelDoorLight? door = lit is null ? null : await PlanDoorLightAsync(resolved, lit, context.Parallelism, cancellationToken).ConfigureAwait(false);
         List<string> lightingWarnings = [];
+
+        // The skybox parallax (D36): a sky room away from its bakes' cell
+        // takes its sun from the cell it stands in, read from the skybox's
+        // sun map; a sky room recasting from outside the skybox is warned of.
+        PlanSkyboxParallax(resolved, lit is not null, lightingWarnings);
+        LevelDoorLight? door = lit is null ? null : await PlanDoorLightAsync(resolved, lit, context.Parallelism, cancellationToken).ConfigureAwait(false);
 
         // The level's one pak: every placed room's packed files, merged by
         // name (LevelPakFiles). Each room's pak is a zip, and reading it is

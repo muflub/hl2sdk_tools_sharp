@@ -51,7 +51,7 @@ public static partial class LevelLinker
         // checks and the census below read only what the bake leaves as
         // compiled.
         RoomLighting? lighting = room.LightingOfCompile;
-        RoomLightingPayload? payload = lighting?.For(rotation);
+        RoomLightingPayload? payload = placement.Parallax ?? lighting?.For(rotation);
         if (lighting is not null)
         {
             bsp = LitOverlay(bsp, lighting, payload!);
