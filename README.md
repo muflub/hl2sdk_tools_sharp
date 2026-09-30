@@ -408,10 +408,13 @@ the libraries only ever see options.
 ### `room`, `rooms`, `link` and `layout`
 
 ```sh
-ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>]
+ssmap room <library.vmf> [-out <pack.roompack>] [-namespace <key>] [-nav-turn0] [-nav-codec <codec>]
            [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
+ssmap roompack -out <pack.roompack> <key>=<library.vmf> [<key>=<library.vmf> ...] [-only <key>[,<key> ...]]
+               [room options]
+ssmap roompack -level <level.yaml> [-out <pack.roompack>] [room options]
 ssmap rooms <library.vmf> [-rooms <pack.roompack>]
-ssmap rooms <level.yaml> [-rooms <key>=<pack.roompack> ...]
+ssmap rooms <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...]
 ssmap rooms -rooms <pack.roompack>
 ssmap link <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
 ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
@@ -498,6 +501,26 @@ controllers, options and skybox are the level's, and every other
 library's copy is dropped with a warning (one line for the equal ones).
 `ssmap link --flatten` and `ssmap rooms <level.yaml>` apply the same rules
 and print the same lines. The rooms design, section 17, has the details.
+
+**Combined packs.** `ssmap roompack` builds several libraries into one pack,
+each under a namespace: `ssmap roompack -out world.roompack base=rooms.vmf
+caves=caves.vmf` packs every room as `key.room` (`base.corner`,
+`caves.corner`), all of them in one run on `-threads`, each compiled with
+the first library's worldspawn and lit under its sun, so the level links
+without the worldspawn and sun lines separate packs give (the singleton
+lines are printed once, by `ssmap roompack`). `-level <level.yaml>` takes
+the libraries, their keys and order from a level file and writes
+`<level>.roompack` beside it. A level links from it with one
+`-rooms world.roompack`, or `-rooms caves=world.roompack` for one key; a
+level of one library finds its rooms in the namespace named after its
+library file. `-incremental` reuses every unchanged room through the room
+cache, and `-only caves` compiles only that library, copying the others'
+rooms byte for byte from the existing pack once their VMFs and the first
+library's singletons are what the pack recorded (it refuses otherwise).
+`ssmap room -namespace <key>` packs one library the same way, for a level
+that keeps a pack per library. When the libraries share one worldspawn
+and sun, a level linked from a combined pack is the same map as from
+separate packs of them, but for the pack and level ids the map records.
 
 `ssmap rooms -rooms <pack>` without a library prints the pack's section
 table: each library and room section's tag, offset, stored length, codec,
