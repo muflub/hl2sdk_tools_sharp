@@ -4267,6 +4267,105 @@ the base's map and `.nav3d` byte for byte (both modes for transit), and the
 stress library's 33 x 33 level links to the same bytes (1.5 to 1.6 s, as
 the base) and passes `ssmap check`.
 
+**The skybox parallax: design (not built).** The gap the note above
+leaves: a sky room at any cell but its bakes' links as if it stood at
+(0, 0), its recasts off by its cell's offset over the scale. The goal is
+a sky room at any cell linking as well as one at (0, 0) does, with no ray
+tracing at link (D2). Three designs were weighed against measurements of
+the facts' library (the sky room "other", the skybox with its overhang,
+the library's sun and ambient, four bounces; each sky-room bake re-run
+with the skybox placed as a level places it for the room at cell
+`(x, y)`, by a scratch build that gave `RoomSkybox.For` and
+`RoomLighting.BakeTurnAsync` a cell; relative error of luxels as PR 9
+measures it).
+
+Where the parallax is bounded. The skybox is one cell (C units), and a
+room at cell `(x, y)` recasts to `camera + (R q + (x, y) C) / scale`, so
+the recast starts cover C / scale skybox units a cell: the cells whose
+recasts start inside the skybox are at most `scale` a side, `scale²` in
+all (256 at the usual 16), and with the camera at the skybox's centre, as
+in the facts, 8 x 8 cells of a level with no negative cell. A cell beyond
+them recasts from outside the skybox, where vrad of the level meets the
+level's own rooms, which no bake of a room holds; no design below matches
+those cells, and such a level shows the engine's void in its 3D sky as
+well, so the link should warn about it rather than try.
+
+- **A. A bake per cell (exact).** Bake each sky room at every in-skybox
+  cell and turn, and link the one for the placement's cell: vrad of the
+  room at its cell, so every cell links as (0, 0) does today, bytes
+  included. Measured: of the 8 x 8 in-skybox cells, 36 to 38 bakes a turn
+  are distinct (cells the overhang's shadow does not reach share one);
+  of all 16 x 16 cells whose recasts can reach it, 59 to 62. Stored as
+  brotli deltas against the (0, 0) bake, the distinct bakes take 46 KB a
+  turn in-skybox (81 KB for 16 x 16) where the turn's payload is 2.6 KB:
+  18 to 31 times the sky room's lighting, before its door light, which
+  would need the same per cell. Pack time is 64 bakes a turn instead of
+  one (a turn's bake 20 to 88 ms here, median 39); grouping cells by the
+  answers of the (0, 0) bake's recast rays can prove two cells' bakes
+  equal without baking both, but only saves the shared ones, and a real
+  skybox's terrain and horizon leave few shared. Exact, bounded by
+  `scale²`, and far too large.
+- **B. The sun's parallax as a layer and a skybox sun map (bounded, not
+  exact).** Correct only the direct sun, the term the parallax moves
+  most: measured, adding the exact change in the direct sun alone (the
+  difference of two bakes without the sky ambient and bounces, at the
+  cell and at (0, 0)) to the (0, 0) bake leaves p95 0.011 to 0.022, p99
+  at most 0.041, max 0.057, energy 0.996 to 0.998, at cells (1, 0),
+  (2, 3) and (5, 5), turns 0 and 1, where the (0, 0) bake alone is p95
+  0.64 to 0.75, energy 0.73 (cell (0, 1), still under the overhang, is
+  0.000 either way). The rest is the sky ambient's own parallax and the
+  bounce of the sun's change, which B leaves out; with four bounces here
+  the sun's bounce moved no quantile in the third place. The pack stores:
+  - per library with a skybox and a sun, a **skybox sun map**: the
+    skybox's casters traced along the sun's direction over its footprint,
+    one texel a skybox unit (a luxel of a room at scale 16), each the
+    height, along that direction, of the highest caster under the
+    skybox's sky, so a recast start above it reaches the sky and one
+    below does not (a sun with a spread stores the fraction of a fixed
+    cone instead). The skybox never turns and the sun is fixed in the
+    world, so it is one map for every room and turn: 128 KB before
+    compression for the facts' 256-unit skybox (two boxes, which compress
+    to almost nothing), 2 MB for a 1024-unit skybox at the same texel;
+  - per sky room and stored turn, a **sun layer**: each luxel's direct
+    sun through its sky with the skybox left out (the room's own shadows
+    in), and the same per static prop vertex and per door light source
+    the sun sends. At most one luxel layer a turn: 5.0 KB (1.8 KB brotli)
+    of the room's 24.1 KB (8.3 KB brotli) `LITE` at four turns, so up to
+    83% more for a sky room, less where the sun reaches fewer faces; one
+    more direct-only vrad run a turn at pack time.
+
+  At link, each luxel of a sky room placed away from its bakes' cell adds
+  its sun layer times the change in the map's visibility over the luxel's
+  footprint between its recast start at the placement's cell and at the
+  bakes' cell (a few map reads a luxel). At the bakes' cell the change is
+  zero, so every fact that holds today holds to the same bytes; a
+  library without a skybox or a sun writes neither section, so the
+  3x3, transit and stress packs and every level linked from them are
+  unchanged. Residual: the figures above plus the map's sampling at
+  shadow edges (a luxel wide), which the measurement does not include,
+  so they are a lower bound; within PR 10's tolerances (0.08), not the
+  exact bytes a capped room at (0, 0) links to.
+- **C. A visibility byte per luxel per cell.** B's layer with, instead of
+  the map, each luxel's sun visibility at every in-skybox cell: 834
+  luxels x 64 cells, 53 KB a turn before compression against the turn's
+  5.0 KB of luxels, and no more exact than B (a luxel is a mean over
+  vrad's sample points, which the link does not know). B's map is
+  smaller and serves every room.
+
+No design is both exact and small: A is exact and 18 to 31 times a sky
+room's lighting (and 64 times its bake time); B is the best bounded one,
+with the residual above. B adds two sections (the library's sun map and
+each sky room's sun layer; tagged, so an older build skips them and links
+as today) and up to 83% to a sky room's lighting, which is a pack format
+change of the kind the brief asked to stop at. Built, its facts would be
+red first against the parallax fact: the sky room at (1, 0) and (2, 3)
+at every turn, alone and capped and beside the hub with its door light,
+against vrad of its link and the flattened compile within PR 10's
+tolerances; the same bytes at the bakes' cell, at one thread and four,
+and for every library without a skybox. Open for the owner: B's residual
+against A's cost, the map's texel, and the warning for a cell whose
+recasts leave the skybox.
+
 **PR 21 landed** (the height-aware generator over several libraries, 17.9,
 for one-cell rooms after D30 dropped PR 20). `ssmap layout` takes
 `key=path` operands (a bare path among them keyed by its stem) and draws
