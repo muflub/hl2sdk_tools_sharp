@@ -213,6 +213,19 @@ internal static class RoomHarness
         return library;
     }
 
+    /// <summary>
+    /// Adds a room with no brushes to a harness library: an <c>info_room</c>
+    /// with no sockets in the <paramref name="slot"/>th cell along +x, and
+    /// nothing in that cell. An author gets one by marking a cell before
+    /// building its room, and the split accepts it (a room without sockets
+    /// needs no plug), so it is the compile that must refuse it.
+    /// </summary>
+    public static void AddEmptyRoom(VmfDocument library, string name, int slot)
+    {
+        RoomDefinition room = WalkableRoom(name);
+        library.Chunks.Add(InfoRoom(room, new Vec3(slot * (room.CellSize + LibraryGap), 0, 0)));
+    }
+
     /// <summary>The <c>info_room</c> entity that marks a room of a library.</summary>
     public static VmfChunk InfoRoom(RoomDefinition room, Vec3 corner)
     {
