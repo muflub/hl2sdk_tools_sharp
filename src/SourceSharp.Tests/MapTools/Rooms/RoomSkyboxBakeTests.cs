@@ -180,12 +180,13 @@ public sealed class RoomSkyboxBakeTests(SkyboxLitFixture fixture) : IClassFixtur
 
     /// <summary>
     /// The library compile (what <c>ssmap room</c> runs) compiles the skybox
-    /// before the rooms and lights each sky room over it: the rooms come out
-    /// in library order, the sky room's lighting the bytes of the harness's
-    /// skybox-first bake; with the skybox not listed (the cache serves it),
-    /// its geometry alone is compiled for the bakes, the same lighting comes
-    /// out, and the skybox is not delivered; with a skybox that does not
-    /// compile, the sky room fails naming it and the hub is lit as always.
+    /// before the rooms and lights each sky room over it: the skybox starts
+    /// first, the rooms come out in library order, the sky room's lighting
+    /// the bytes of the harness's skybox-first bake; with the skybox not
+    /// listed (the cache serves it), its geometry alone is compiled for the
+    /// bakes, the same lighting comes out, and the skybox is not delivered;
+    /// with a skybox that does not compile, the sky room fails naming it and
+    /// the hub is lit as always.
     /// </summary>
     [Fact]
     public async Task TheLibraryCompileCompilesTheSkyboxFirst()
@@ -198,14 +199,26 @@ public sealed class RoomSkyboxBakeTests(SkyboxLitFixture fixture) : IClassFixtur
             DoorLight = false,
             Skybox = split.Skybox,
         };
+        List<int> started = [];
         RoomLibraryCompileSettings settings = new(context.Options, context.Content)
         {
             Lighting = lighting,
             Parallelism = new CompileParallelism { MaxDegree = 2 },
+            BeforeRoomProbe = (index, _) =>
+            {
+                lock (started)
+                {
+                    started.Add(index);
+                }
+
+                return ValueTask.CompletedTask;
+            },
         };
         byte[] expected = fixture.Lit.Get("other").Lighting!.ToSection().Bytes.ToArray();
 
         List<RoomCompileOutcome> listed = await CompileAsync([.. split.Rooms, split.Skybox!], settings);
+        Assert.Equal(2, started[0]);
+        Assert.Equal(3, started.Count);
         Assert.Equal(["hub", "other", "sky"], listed.Select(o => o.Room.Definition.Name));
         Assert.All(listed, o => Assert.Null(o.Error));
         Assert.Equal(expected, listed[1].Compiled!.Lighting!.ToSection().Bytes.ToArray());

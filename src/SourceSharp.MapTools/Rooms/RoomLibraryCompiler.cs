@@ -221,6 +221,16 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
 /// the rooms before it; a serial run would have reported them.
 /// </para>
 /// <para>
+/// <b>The skybox before the rooms.</b> A lit library with a 3D skybox
+/// (<see cref="RoomLightingSettings.Skybox"/>) lights each sky room over the
+/// skybox's compile (<see cref="RoomSkybox"/>), so the skybox is compiled
+/// first, alone, on the whole pool, and the other rooms after it; its
+/// outcome still reaches the caller in its place in library order. When the
+/// skybox is not among the rooms (the cache serves it), its geometry alone
+/// is compiled for the bakes. One room's compile ahead of the rest is the
+/// price: the skybox is one cell, and the sky rooms cannot start without it.
+/// </para>
+/// <para>
 /// <b>Material facts are read once.</b> The run makes one
 /// <see cref="SharedMaterialFacts"/> over the content, and every room's
 /// context reads through it: the kit's VMTs and base textures are read once
@@ -320,6 +330,11 @@ public static class RoomLibraryCompiler
                     RoomObject? skybox;
                     if (skyboxIndex >= 0)
                     {
+                        if (settings.BeforeRoomProbe is { } before)
+                        {
+                            await before(skyboxIndex, cancellationToken).ConfigureAwait(false);
+                        }
+
                         RoomCompileOutcome outcome = await CompileRoomAsync(
                             skyboxIndex, rooms[skyboxIndex], settings, materials, cooker, roomParallelism, cancellationToken).ConfigureAwait(false);
                         settings.RoomCompiledProbe?.Invoke(skyboxIndex);
