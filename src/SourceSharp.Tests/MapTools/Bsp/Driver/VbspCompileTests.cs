@@ -15,6 +15,7 @@ using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Bsp.Portals;
 using SourceSharp.MapTools.Bsp.Driver;
+using SourceSharp.MapTools.Bsp.Write;
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Validation;
@@ -229,6 +230,7 @@ public sealed class VbspCompileTests
 
         MapCompileException error = await Assert.ThrowsAsync<MapCompileException>(() => CompileAsync(document));
 
+        Assert.Equal(WriteCodes.NoBrushes, error.Code);
         Assert.Equal("VBSP0614", error.Code);
         Assert.Equal(
             "the map has no brushes: worldspawn and every brush entity are empty, so there is no world model to build.",

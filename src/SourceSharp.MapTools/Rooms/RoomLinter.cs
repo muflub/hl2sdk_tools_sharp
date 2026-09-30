@@ -140,6 +140,20 @@ public static class RoomLinter
 
         definition.Validate();
 
+        // A room is a shell of world brushes. With none (a cell marked as a
+        // room before anything was built in it, or one holding only brush
+        // entities) there is nothing for any later rule to check and no world
+        // for vbsp to build: with no brushes anywhere vbsp refuses the map,
+        // and with only a brush entity it makes that entity model 0, which
+        // is no room. Refused first, by name, before the compile is paid for.
+        if (map.Entities.Count == 0 || map.Entities[0].BrushCount == 0)
+        {
+            throw new RoomLintException(
+                $"rule {(int)RoomRule.ShellSealedExceptAtSockets} ({nameof(RoomRule.ShellSealedExceptAtSockets)}):"
+                + $" room {definition.Name} has no world brushes; a room is a shell of world brushes around its cell,"
+                + " and a compile of none has no world to build.");
+        }
+
         float cell = definition.CellSize;
         Box cellBox = new(Vec3.Zero, new Vec3(cell, cell, cell));
 
