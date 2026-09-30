@@ -10,6 +10,7 @@ stock tools, runs all three stages in one process with the BSP held in
 memory, and adds instruments the stock tools never had: a loader-rule
 checker, a lump-by-lump diff, a benchmark harness and an incremental cache.
 
+- [Benchmarks](#benchmarks)
 - [What it does](#what-it-does)
 - [Layout](#layout)
 - [Requirements](#requirements)
@@ -25,6 +26,66 @@ checker, a lump-by-lump diff, a benchmark harness and an incremental cache.
 - [CI and releases](#ci-and-releases)
 - [Design rules](#design-rules)
 - [License](#license)
+
+## Benchmarks
+
+The full vbsp, vvis and vrad chain, one process per stage, compiled with the
+stock SDK 2013 compilers, Tools++ and `ssmap`. Median wall seconds of 3
+timed chains after one warm-up, each tool with its default options and
+thread count. Every run produced a lit map.
+
+`sdk_ctf_2fort` (Valve's SDK 2fort):
+
+| toolset | vbsp | vvis | vrad | total | speed vs stock |
+|---|---:|---:|---:|---:|---:|
+| stock SDK 2013 | 5.55 | 9.31 | 31.60 | 46.46 | 1.00× (100%) |
+| Tools++ | 4.82 | 2.58 | 7.81 | 15.20 | 3.06× (306%) |
+| ssmap (JIT) | 3.56 | 4.56 | 8.10 | 16.20 | 2.87× (287%) |
+| **ssmap (NativeAOT), fastest** | **1.15** | **4.34** | **5.87** | **11.34** | **4.10× (410%)** |
+| ssmap (JIT), vvis `-fastflow` | 3.90 | 7.76 | 8.18 | 19.97 | 2.33× (233%) |
+| ssmap (AOT), vvis `-fastflow` | 1.16 | 9.07 | 5.86 | 16.05 | 2.89× (289%) |
+
+`ss_sandbox` (process start-up dominates a map this small; 2fort is the
+comparison that matters):
+
+| toolset | vbsp | vvis | vrad | total | speed vs stock |
+|---|---:|---:|---:|---:|---:|
+| stock SDK 2013 | 0.29 | 0.14 | 10.36 | 10.88 | 1.00× (100%) |
+| Tools++ | 0.24 | 0.05 | 8.67 | 8.96 | 1.21× (121%) |
+| ssmap (JIT) | 0.58 | 0.08 | 2.79 | 3.43 | 3.17× (317%) |
+| ssmap (NativeAOT) | 0.13 | 0.01 | 1.45 | 1.59 | 6.84× (684%) |
+| ssmap (JIT), vvis `-fastflow` | 0.72 | 0.12 | 3.30 | 4.15 | 2.62× (262%) |
+| ssmap (AOT), vvis `-fastflow` | 0.13 | 0.01 | 1.34 | 1.48 | 7.35× (735%) |
+
+On 2fort, ssmap NativeAOT compiles the full chain 4.10× (410%) as fast as
+stock and beats Tools++ (11.34 s against 15.20 s); vvis is the one stage
+Tools++ still wins (2.58 s against 4.34 s).
+
+Why Tools++ is faster at vvis is our best reading of its behaviour, not
+something we have measured inside it:
+
+- **Smaller vectors.** It keeps each portal flow's visibility bits per
+  cluster rather than per portal. On 2fort that makes every vector about a
+  fifth of the size, and the portal flow does little else than AND and OR
+  those vectors, so it moves roughly a fifth of the memory. It also runs
+  those loops with AVX2.
+- **It does not compute the same answer.** On the same tree its PVS differs
+  from stock's (about 700 extra visible pairs and 226 missing), and its output
+  changes from run to run. That points to filtering that is not exact and to
+  threads sharing partial results in whatever order they finish, both of
+  which skip work an exact flow has to do.
+- **ssmap holds itself to stock's answer.** Its vvis must give stock's PVS,
+  and the same bytes at every thread count. We tried keeping the vectors per
+  cluster while staying exact: it gained only about 5% and was not
+  equivalent, so it was not merged. The remaining gap is mostly the price of
+  exactness. [`-fastflow`](#the-fast-vvis-flow--fastflown) is the opt-in
+  inexact mode, and on this 32-thread machine it is currently slower, not
+  faster ([docs/benchmarks.md](docs/benchmarks.md#notes) says why).
+
+Measured at main b6d6465 on 2026-09-29, on a Ryzen 9 9950X (16 cores,
+32 threads) under Linux, with `tools/toolchain-bench.sh` and its defaults.
+[docs/benchmarks.md](docs/benchmarks.md) has the output checks, why
+`-fastflow` is slower here, and how each toolset is run.
 
 ## What it does
 
@@ -408,10 +469,13 @@ the libraries only ever see options.
 ### `room`, `rooms`, `link` and `layout`
 
 ```sh
-ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>]
+ssmap room <library.vmf> [-out <pack.roompack>] [-namespace <key>] [-nav-turn0] [-nav-codec <codec>]
            [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
+ssmap roompack -out <pack.roompack> <key>=<library.vmf> [<key>=<library.vmf> ...] [-only <key>[,<key> ...]]
+               [room options]
+ssmap roompack -level <level.yaml> [-out <pack.roompack>] [room options]
 ssmap rooms <library.vmf> [-rooms <pack.roompack>]
-ssmap rooms <level.yaml> [-rooms <key>=<pack.roompack> ...]
+ssmap rooms <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...]
 ssmap rooms -rooms <pack.roompack>
 ssmap link <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
 ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
@@ -498,6 +562,26 @@ controllers, options and skybox are the level's, and every other
 library's copy is dropped with a warning (one line for the equal ones).
 `ssmap link --flatten` and `ssmap rooms <level.yaml>` apply the same rules
 and print the same lines. The rooms design, section 17, has the details.
+
+**Combined packs.** `ssmap roompack` builds several libraries into one pack,
+each under a namespace: `ssmap roompack -out world.roompack base=rooms.vmf
+caves=caves.vmf` packs every room as `key.room` (`base.corner`,
+`caves.corner`), all of them in one run on `-threads`, each compiled with
+the first library's worldspawn and lit under its sun, so the level links
+without the worldspawn and sun lines separate packs give (the singleton
+lines are printed once, by `ssmap roompack`). `-level <level.yaml>` takes
+the libraries, their keys and order from a level file and writes
+`<level>.roompack` beside it. A level links from it with one
+`-rooms world.roompack`, or `-rooms caves=world.roompack` for one key; a
+level of one library finds its rooms in the namespace named after its
+library file. `-incremental` reuses every unchanged room through the room
+cache, and `-only caves` compiles only that library, copying the others'
+rooms byte for byte from the existing pack once their VMFs and the first
+library's singletons are what the pack recorded (it refuses otherwise).
+`ssmap room -namespace <key>` packs one library the same way, for a level
+that keeps a pack per library. When the libraries share one worldspawn
+and sun, a level linked from a combined pack is the same map as from
+separate packs of them, but for the pack and level ids the map records.
 
 `ssmap rooms -rooms <pack>` without a library prints the pack's section
 table: each library and room section's tag, offset, stored length, codec,
@@ -1479,97 +1563,17 @@ stage's time.
 ### Against the stock tools and Tools++
 
 `tools/toolchain-bench.sh` compiles the same maps with the stock SDK 2013
-compilers, Tools++ and `ssmap`, and times each stage:
+compilers, Tools++ and `ssmap`, each toolset with its own vbsp, vvis and vrad
+chain, and times each stage:
 
     tools/toolchain-bench.sh                     # ss_sandbox and 2fort
     tools/toolchain-bench.sh --map dustbowl=path/to/sdk_cp_dustbowl.vmf:game/mod_tf --runs 5
 
-Each toolset runs its own vbsp, vvis and vrad chain. The runs are
-interleaved, and every map starts with an untimed warm-up per toolset. The
-Windows tools run under wine: Proton Experimental's wine is used when it is
-installed, with the prefix `~/.local/share/source-sdk-wineprefix`. They
-cannot mount `|appid_N|` paths, so each game directory's search paths are
-rewritten into a gameinfo of the run's own, with absolute paths.
-
-- **Stock tools:** found through Steam, in app 243750's `bin/x64`.
-- **Tools++:** read from `~/Downloads/tools_plusplus` (its `tools/` and
-  `compatibility/` folders). Its vbsp always gets `-matsyscompat`. Without
-  it, Tools++ cannot load the SDK 2013 and TF2 textures, and it writes an
-  unlit map in a fraction of the time.
-
-Every output is checked as well as timed. A chain whose map has no lighting
-is reported as a failure, not a time. `summary.md` lists each toolset's
-visibility and lighting lump sizes and its "not found" log lines next to its
-numbers.
-
-The toolsets:
-
-- `stock`: the SDK 2013 compilers under wine.
-- `pp`: Tools++ under wine.
-- `ssmap`: the Release build on the JIT.
-- `ssmap-aot`: the same ssmap published with NativeAOT to `bin/aot/ssmap`.
-  The script publishes it unless `--no-build` is given. The chain runs
-  one process per stage, as the stock tools do, and AOT skips the .NET
-  start-up and JIT that each of those processes otherwise pays.
-- `ssmap-fast` and `ssmap-aot-fast`: the same two builds with vvis
-  `-fastflow` (see [the fast flow](#the-fast-vvis-flow--fastflown)) and
-  nothing else changed. The flag goes on the vvis stage only. Its accuracy
-  cost shows in the `vis bytes` column of `summary.md`, next to plain
-  `ssmap` and `stock`: the fast flow can only drop visible clusters, so its
-  visibility lump is usually smaller.
-
-`--toolsets` picks a subset.
-
-#### Results
-
-Measured with `tools/toolchain-bench.sh` at 9b300b1:
-
-- Machine: Ryzen 9 9950X (16 cores, 32 threads) on Linux.
-- Each tool's default options and thread count.
-- Median of 3 timed chains after one warm-up.
-- Wall seconds per stage.
-
-`ss_sandbox`:
-
-| toolset | vbsp | vvis | vrad | total | vs stock |
-|---|---:|---:|---:|---:|---:|
-| stock | 0.27 | 0.13 | 9.75 | 10.14 | 1.00× |
-| Tools++ | 0.23 | 0.05 | 8.49 | 8.78 | 0.87× |
-| ssmap (JIT) | 0.52 | 0.07 | 3.26 | 3.85 | 0.38× |
-| ssmap (AOT) | 0.11 | 0.01 | 1.37 | 1.48 | 0.15× |
-
-`sdk_ctf_2fort`:
-
-| toolset | vbsp | vvis | vrad | total | vs stock |
-|---|---:|---:|---:|---:|---:|
-| stock | 5.56 | 9.49 | 31.35 | 46.40 | 1.00× |
-| Tools++ | 4.82 | 2.60 | 7.92 | 15.34 | 0.33× |
-| ssmap (JIT) | 3.89 | 5.22 | 9.00 | 18.15 | 0.39× |
-| ssmap (AOT) | 1.22 | 4.94 | 7.39 | 13.54 | 0.29× |
-
-All four toolsets produced lit maps with the same lighting size, to within
-0.2%.
-
-What the numbers say:
-
-- **ssmap AOT is the fastest chain on both maps.** On the small sandbox the
-  JIT's start-up is most of ssmap's time: 3.85 s against 1.48 s. vrad is
-  where ssmap gains most over stock, and ssmap's vbsp is the fastest of the
-  four.
-- **Tools++'s vvis is about twice as fast as ssmap's on 2fort.** vvis is the
-  one stage ssmap does not lead. Tools++ keeps its visibility bit vectors per
-  cluster, where stock and ssmap keep them per portal. On 2fort that makes
-  each vector about a fifth of the size, and every step of the portal flow
-  reads and writes those vectors. Tools++ also vectorises those loops with
-  AVX2.
-- **ssmap's 2fort tree is close to stock's, but not identical.** ssmap's
-  vbsp writes 2492 clusters and 6367 portals, against stock's 2480 and 6339,
-  and its visibility lump is 667,660 bytes against stock's 660,492. The
-  remaining difference is not yet in the compliance catalogue, so it is a
-  bug to find, not a result.
-
-The sandbox numbers are small enough that process start-up dominates. 2fort
-is the one to compare compilers on.
+The Windows tools run under wine. Every output is checked as well as timed,
+and a chain whose map has no lighting is reported as a failure, not a time.
+The latest results are in [Benchmarks](#benchmarks); how each toolset is
+run, with which settings and why, is in
+[docs/benchmarks.md](docs/benchmarks.md). `--help` lists every option.
 
 ### Without the Steam content
 
