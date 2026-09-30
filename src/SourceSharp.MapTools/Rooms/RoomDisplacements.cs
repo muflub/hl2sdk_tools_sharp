@@ -103,7 +103,7 @@ internal sealed class RoomDisplacements
     /// SDK's vbsp refuses a map past, so a linked level past it would be one
     /// the flattened level's stock compile refuses.
     /// </summary>
-    public const int MaxMapDispInfo = 2048;
+    public const int MaxMapDispInfo = Bsp.Write.WriteLimits.MaxMapDispInfo;
 
     /// <summary>The power vbsp gives up the virtual mesh for (the collision then goes into the world's solids).</summary>
     public const int StaticMeshPower = 4;
@@ -369,9 +369,9 @@ internal sealed class RoomDisplacements
 
     /// <summary>
     /// What is wrong with a room's displacements for the link, as the rooms
-    /// design's refusals say it, or null: a displacement of power 4, one
-    /// whose surface leaves the cell, or one with an edge on a socket's plug
-    /// box (15.4).
+    /// design's refusals say it, or null: a displacement on a side of a
+    /// socket's plug, one of power 4, one whose surface leaves the cell, or
+    /// one with an edge on a socket's plug box (15.4).
     /// </summary>
     /// <param name="definition">The room: its name, cell and sockets.</param>
     /// <param name="room">The room's VMF, room-local.</param>
@@ -386,6 +386,14 @@ internal sealed class RoomDisplacements
     /// start corner nearest <c>startposition</c>, <see cref="DisplacementLumpBuilder.DispMapToCoreDispInfo"/>),
     /// the base face cut from the side's plane by the brush's other planes,
     /// in doubles.
+    /// </para>
+    /// <para>
+    /// <b>On a plug.</b> A socket's plug is a wall only where the socket is
+    /// capped: a joint strips it (its faces drawn nodraw) and the flatten
+    /// leaves it out, so a displacement on one of its sides would stand on a
+    /// face the level does not draw in one map and be gone in the other. A
+    /// plug is the brush whose box is its socket's plug box, the rule the
+    /// flatten leaves joined plugs out by (<see cref="RoomLibraryVmf.Same"/>).
     /// </para>
     /// <para>
     /// <b>Power 4.</b> vbsp gives up the virtual mesh for every displacement
@@ -426,6 +434,17 @@ internal sealed class RoomDisplacements
         foreach ((VmfChunk solid, VmfChunk side, VmfChunk dispinfo) in DisplacementSides(room))
         {
             string sideId = side.GetValue("id") ?? "?";
+            Box brush = VmfPlacement.Bounds(solid);
+            foreach (RoomSocket socket in definition.Sockets)
+            {
+                if (RoomLibraryVmf.Same(brush, RoomLinter.SealBox(definition, socket, definition.CellSize)))
+                {
+                    return string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"room {definition.Name}: the displacement on brush side {sideId} is on socket \"{socket.Name}\"'s plug, which a joint removes.");
+                }
+            }
+
             MapDisplacement disp;
             try
             {

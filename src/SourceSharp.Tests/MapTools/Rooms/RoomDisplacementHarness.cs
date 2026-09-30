@@ -14,7 +14,6 @@ using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
-using SourceSharp.MapTools.Bsp.Collision;
 using SourceSharp.MapTools.Bsp.Driver;
 using SourceSharp.MapTools.Disp;
 using SourceSharp.MapTools.Options;

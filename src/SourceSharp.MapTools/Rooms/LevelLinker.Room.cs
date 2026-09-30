@@ -5,7 +5,6 @@
 //
 //=============================================================================//
 
-using System.Buffers.Binary;
 
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;

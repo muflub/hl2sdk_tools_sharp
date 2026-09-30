@@ -23,6 +23,9 @@ public static partial class BspValidator
     /// <summary><c>MAX_MAP_CUBEMAPSAMPLES</c>: the most cubemap samples the SDK's vbsp writes.</summary>
     private const int MaxMapCubemapSamples = Bsp.Write.WriteLimits.MaxMapCubemapSamples;
 
+    /// <summary><c>MAX_MAP_DISPINFO</c>: the most displacements the SDK's vbsp loads.</summary>
+    private const int MaxMapDispInfo = Bsp.Write.WriteLimits.MaxMapDispInfo;
+
     private static void CheckContent(
         BspData bsp,
         Counts counts,
@@ -55,6 +58,18 @@ public static partial class BspValidator
                 BspRuleCodes.TooManyCubemaps,
                 $"the map has {counts.Cubemaps} cubemap samples, more than the {MaxMapCubemapSamples} (MAX_MAP_CUBEMAPSAMPLES)"
                 + " the SDK's vbsp writes");
+        }
+
+        // The same for displacements: the SDK's vbsp loads at most
+        // MAX_MAP_DISPINFO of them, so a map with more came from elsewhere (a
+        // linker, a later branch's -maxdispinfo), and whether this engine
+        // reads them all is not settled here.
+        if (counts.DispInfo > MaxMapDispInfo)
+        {
+            findings.Add(
+                BspRuleCodes.TooManyDisplacements,
+                $"the map has {counts.DispInfo} displacements, more than the {MaxMapDispInfo} (MAX_MAP_DISPINFO)"
+                + " the SDK's vbsp loads");
         }
 
         CheckPhysics(bsp, counts, findings);

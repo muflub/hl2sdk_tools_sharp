@@ -173,28 +173,56 @@ public sealed class LevelLinkerDisplacementTests(ITestOutputHelper output)
     /// it is refused with the rooms design's text (15.4 for the socket) by
     /// the split, so by the pack and the flatten, and by a room compile given
     /// the room's VMF: an edge reaching into a doorway, a surface out of the
-    /// cell, power 4. A patch whose edge only touches the doorway's inner face
+    /// cell, power 4, a displacement on a plug's side (the patch here is a
+    /// second brush on the plug's box, whose top is the displacement). A patch whose edge only touches the doorway's inner face
     /// is carried.
     /// </summary>
     [Theory]
     [InlineData("doorway", "room hub: the displacement on brush side 48000 has an edge on socket \"east\"'s plug box; displacements may not meet at a joint.")]
     [InlineData("below", "room hub: the displacement on brush side 48000 reaches 4.50 units outside the cell; displacements stay in their cell.")]
     [InlineData("power", "room hub: the displacement on brush side 48000 is power 4; the link carries displacement collision only as the virtual mesh vbsp builds for powers 2 and 3.")]
+    [InlineData("plug", "room hub: the displacement on brush side 48000 is on socket \"east\"'s plug, which a joint removes.")]
     public async Task ADisplacementTheLinkCannotCarryIsRefused(string fault, string message)
     {
+        Box plug = RoomLinter.SealBox(RoomPropHarness.Hub, RoomPropHarness.Hub.Sockets.Single(s => s.Name == "east"), RoomHarness.Cell);
         VmfChunk patch = fault switch
         {
             "doorway" => Patch(PatchBrush, new Box(new Vec3(176, 96, 16), new Vec3(250, 160, 24)), offsets: false),
             "below" => Downward(Patch(PatchBrush, new Box(new Vec3(64, 64, 0), new Vec3(128, 128, 4)))),
+            "plug" => Patch(PatchBrush, plug, offsets: false),
             _ => Patch(PatchBrush, HubWest, power: 4),
         };
-        VmfDocument library = Library([(0, patch)]);
+
+        // A patch is a brush of its own; the plug's displacement is on the
+        // plug itself (the hub's plug brush, whose top side takes it and
+        // whose sides take the patch's id), since a second brush filling the
+        // plug box is a second plug.
+        void Add(VmfDocument document)
+        {
+            VmfChunk world = document.GetChunk(MapFileLoader.WorldChunk)!;
+            if (fault != "plug")
+            {
+                world.Children.Add(patch);
+                return;
+            }
+
+            VmfChunk solid = world.GetChunks(MapFileLoader.SolidChunk).Single(b => RoomLibraryVmf.Same(VmfPlacement.Bounds(b), plug));
+            foreach (VmfChunk side in solid.GetChunks(MapFileLoader.SideChunk))
+            {
+                side.Keys.Single(k => k.Name == "id").Value = "48000";
+            }
+
+            solid.Chunks.First().Children.Add(VmfPlacement.Clone(patch.Chunks.First().GetChunk("dispinfo")!));
+        }
+
+        VmfDocument library = Library([]);
+        Add(library);
         Assert.Equal(message, Assert.Throws<RoomLibraryException>(() => RoomLibraryVmf.SplitLibrary(library)).Message);
         Assert.Equal(message, Assert.Throws<RoomLibraryException>(() => LevelFlattener.Flatten(RoomPropHarness.Level("hub"), library)).Message);
 
         LibraryRoom hub = RoomLibraryVmf.SplitLibrary(Library([])).Rooms[0];
         VmfDocument room = hub.Document;
-        room.GetChunk(MapFileLoader.WorldChunk)!.Children.Add(patch);
+        Add(room);
         VbspContext context = await ContextAsync(null, "hub");
         RoomLintException compile = await Assert.ThrowsAsync<RoomLintException>(
             () => SourceSharp.MapTools.Rooms.RoomCompiler.CompileAsync(room, hub.Definition, context));

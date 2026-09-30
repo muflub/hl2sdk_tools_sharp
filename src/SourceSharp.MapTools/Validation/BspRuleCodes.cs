@@ -141,4 +141,7 @@ public static class BspRuleCodes
 
     /// <summary>The map should carry at most <c>MAX_MAP_CUBEMAPSAMPLES</c> cubemap samples.</summary>
     public const string TooManyCubemaps = "BSP0039";
+
+    /// <summary>The map should carry at most <c>MAX_MAP_DISPINFO</c> displacements.</summary>
+    public const string TooManyDisplacements = "BSP0040";
 }

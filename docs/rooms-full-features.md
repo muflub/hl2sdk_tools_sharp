@@ -140,13 +140,14 @@ adds a section does.
 In the order it checks:
 
 1. any non-empty lump outside `LevelLinker.CarriedLumps`. Not in the set:
-   `WorldLights(Hdr)`, `DispInfo`, `DispVerts`, `DispTris`,
-   `DispLightmapAlphas`, `DispLightmapSamplePositions`, `LeafWaterData`,
+   `WorldLights(Hdr)`, `LeafWaterData`,
    `WaterOverlays`, `LeafAmbientIndex(Hdr)`,
    `LeafAmbientLighting(Hdr)`, `LightingHdr`, `FacesHdr` (`Cubemaps` left
-   the list with PR 12, `ClipPortalVerts` with PR 13; since PR 11
+   the list with PR 12, `ClipPortalVerts` with PR 13, the five
+   displacement lumps with PR 15; since PR 11
    `Overlays` and `OverlayFades` are carried, and a room with overlays is
-   refused only when it carries no overlay data from its compile);
+   refused only when it carries no overlay data from its compile, as since
+   PR 15 a room with displacements is);
 2. more than one model, or a world model whose head node is not 0 (since
    PR 7 brush models are carried, and a room with them is refused only when
    it carries no brush model data from its compile);
@@ -159,7 +160,10 @@ In the order it checks:
    detail props; since PR 6 static props are carried, and a static prop lump
    with content is refused only when the room carries no static prop data
    from its compile);
-6. displacement collision (`RefuseDisplacementCollision`);
+6. displacement collision (`RefuseDisplacementCollision`; since PR 15
+   the collision is carried with its displacements, and only a collision
+   lump for displacements the room does not have is refused,
+   `RoomDisplacementsOf`);
 7. and, in `LinkAsync`, a pak holding any file (`RefusePackedFilesAsync`;
    since PR 5 the files are carried and only a pak that is not a zip is
    refused, `ReadPakAsync`).
@@ -268,7 +272,7 @@ or research).
 | `func_ladder` | silently wrong (`info_ladder` bounds) | bounds per rotation | none | 1 (`info_ladder`) | S |
 | Static props | carried since PR 6 (moved, filtered, dictionaries merged, leaves recomputed, `.vhv` renamed) | props per rotation, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
 | Detail props | refused (game lump) | props per rotation, leaf-local runs; lighting ×1, or ×4 if sunlit | renumber leaves, re-sort, merge dictionaries | 0 | M |
-| Displacements | refused at split (`VmfPlacement.MoveSide`) | lumps and collision per rotation, sample positions | rebase; cross-room neighbours only if allowed | 0 | L |
+| Displacements | carried since PR 15 (moved and turned, runs, faces and neighbours rebased, collision hulls and lighting the room's; no stitching across a joint, which is refused) | starts and vertex vectors per rotation | rebase; cross-room neighbours only if allowed | 0 | L |
 | Water | refused (water leaf, lump) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
 | Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays refused with water) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
 | Decals (`infodecal`) | carried | nothing | nothing | 1 each (**uncertain** after spawn) | S |
@@ -543,8 +547,9 @@ displacement face's `DFace.DispInfo`. Neighbours come from
 `Disp/DispNeighbourFinder`; normals are smoothed across neighbours
 (`Disp/DispNormalSmoother`). vrad lights the surface (`Rad/Displacement/`).
 
-**Today.** Refused at the split: `VmfPlacement.MoveSide` throws on a
-`dispinfo` chunk; also by lump and by `RefuseDisplacementCollision`.
+**Today.** Carried since PR 15 (section 13, its landed note). Before it,
+refused at the split (`VmfPlacement.MoveSide` threw on a `dispinfo`
+chunk), by lump and by `RefuseDisplacementCollision`.
 
 **Pack vs link.** Per rotation: all displacement lumps and collision, moved. At link:
 rebase `DispInfo` indices (vertex, triangle, alpha and sample-position
@@ -2232,7 +2237,7 @@ Source SDK 2013 values not yet in this repo's tables (`BspLimits.Caps`,
 | Names | resolved value length | 1023 bytes (5.6), **uncertain** engine cap |
 | Static props | props, dictionary, leaf-list entries | `ushort` fields (65,535) |
 | Detail props | props; `dplt` entries | 65,535 (`DetailPropEmitter.MaxDetailProps`) |
-| Displacements | dispinfos; disp verts; disp tris | 2048 dispinfos (SDK); `DFace.DispInfo` `short` |
+| Displacements | dispinfos; disp verts; disp tris | 2048 dispinfos (SDK; `WriteLimits.MaxMapDispInfo` and BSP0040 since PR 15); `DFace.DispInfo` `short` |
 | Water | leaf water data; water texinfos | 32,768 (`WriteLimits.MaxMapLeafWaterData`) |
 | Overlays | overlays; water overlays | 512; 16,384 (`MapOverlay`) |
 | Cubemaps | samples; patched texdata and texinfo | 1024 samples (SDK; `WriteLimits.MaxMapCubemapSamples` and BSP0039 since PR 12); texdata 2048, texinfo 12,288 |
@@ -4819,7 +4824,8 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
 - **Combined packs: no version change.** The pack layout is `RoomPack`'s,
   version 4 (PR 4 raised it to 2, PR 5 to 3 and Q3 to 4 with `DVIS`; the
   `PROP`, `BMOD`, `TRAN`, `CUBE`, `OVLY`, `LITE`, `APRT` and `SKYB`
-  sections of PRs 6 to 13 are optional tags an older build skips). New
+  sections of PRs 6 to 13, and PR 15's `DISP`, are optional tags an older
+  build skips). New
   library section **`NSPC`**, an optional known tag in the same way (no
   version bump; PR 10's door-light sections are added the same way on their
   own branch), with the 1.1 framing: per namespace in order, its key, the

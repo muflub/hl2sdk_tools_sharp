@@ -33,6 +33,15 @@ internal static class WriteLimits
     /// </summary>
     internal const int MaxMapCubemapSamples = 1024;
 
+    /// <summary>
+    /// <c>MAX_MAP_DISPINFO</c>: the most displacements the SDK's vbsp loads
+    /// from a map (the <c>-maxdispinfo</c> of later branches raises it), so
+    /// the most a map it compiles carries; a linked level is held to it too,
+    /// since the flattened level's compile must be able to write the same
+    /// map.
+    /// </summary>
+    internal const int MaxMapDispInfo = 2048;
+
     /// <summary><c>MAX_SWITCHED_LIGHTS</c>.</summary>
     internal const int MaxSwitchedLights = 32;
 
