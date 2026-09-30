@@ -296,6 +296,7 @@ public static class RoomCommands
         IReadOnlyList<VmfChunk> libraryEntities;
         RoomLibraryOptions libraryOptions;
         RoomLightingSettings? lighting;
+        string? skyboxRoom;
         try
         {
             byte[] libraryBytes = await ReadBytesAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false);
@@ -304,7 +305,11 @@ public static class RoomCommands
             // The library-wide entities in the gaps (the sun, fog and the
             // like) go into the pack's library section, not away.
             RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(libraryVmf);
-            rooms = split.Rooms;
+
+            // The skybox room compiles and packs like any room, after them;
+            // a library section names it, since no level places it.
+            rooms = split.Skybox is { } skybox ? [.. split.Rooms, skybox] : split.Rooms;
+            skyboxRoom = split.Skybox?.Definition.Name;
             libraryEntities = split.LibraryEntities;
             libraryOptions = split.Options;
             navSettings = NavSettings.FromLibrary(libraryVmf);
@@ -494,6 +499,11 @@ public static class RoomCommands
         if (libraryOptions.ToSection() is { } optionsSection)
         {
             librarySections.Add(optionsSection);
+        }
+
+        if (skyboxRoom is not null)
+        {
+            librarySections.Add(RoomLibrarySkybox.ToSection(skyboxRoom));
         }
 
 
@@ -1120,15 +1130,25 @@ public static class RoomCommands
             // flags, and without -mod-entities its hub's stock fallback): at
             // most what its names say, so the layout never under-counts.
             int written = counts.Names.GetValueOrDefault(name)?.WrittenEdictsBound(modEntities) ?? 0;
-            edicts.Add(found.Tally(EntityClassTable.Default).Edicts + written + TransitionEdictsBound(room, modEntities));
+            // And, when the library asks for door portals, its share of its
+            // joints' portals: half its sockets, rounded up.
+            int doors = counts.Options.HasDoorPortals ? LevelDoorPortals.EdictsBound(room.Definition) : 0;
+            edicts.Add(found.Tally(EntityClassTable.Default).Edicts + written + TransitionEdictsBound(room, modEntities) + doors);
         }
 
         int budget = explicitBudget
             ?? EntityClassTable.EdictCap - LevelEntityBudget.ReserveFor(LevelLinkOptions.Default, counts.Options);
 
         // The library's own entities are the level's whatever it places, as
-        // the link counts them.
-        return new LayoutEntityBudget(budget, edicts) { LevelEdicts = RoomLibraryEntities.Count(counts.LibraryEntities).Tally(EntityClassTable.Default).Edicts };
+        // the link counts them, and so are its skybox room's, which every
+        // level carries once below its grid.
+        int skybox = counts.Skybox is { } sky && counts.Counts.GetValueOrDefault(sky) is { } skyCounts
+            ? skyCounts.Tally(EntityClassTable.Default).Edicts
+            : 0;
+        return new LayoutEntityBudget(budget, edicts)
+        {
+            LevelEdicts = RoomLibraryEntities.Count(counts.LibraryEntities).Tally(EntityClassTable.Default).Edicts + skybox,
+        };
     }
 
     /// <summary>
@@ -1559,7 +1579,11 @@ public static class RoomCommands
         IReadOnlyDictionary<string, RoomEntityCounts?> Counts,
         IReadOnlyDictionary<string, RoomNameSummary> Names,
         IReadOnlyList<VmfChunk> LibraryEntities,
-        IReadOnlyDictionary<string, int> Lighting);
+        IReadOnlyDictionary<string, int> Lighting)
+    {
+        /// <summary>The library's skybox room, which every level carries once, or null.</summary>
+        public string? Skybox { get; init; }
+    }
 
     /// <summary>The pack's settings and counts, or null when there is no pack at <paramref name="packPath"/>.</summary>
     private static async Task<PackCounts?> ReadPackCountsAsync(IFileSystem disk, VPath packPath, CancellationToken cancellationToken)
@@ -1574,6 +1598,7 @@ public static class RoomCommands
         // In the order ssmap room writes the library sections: entities, then settings.
         IReadOnlyList<VmfChunk> libraryEntities = await RoomPack.ReadLibraryEntitiesAsync(stream, index, cancellationToken).ConfigureAwait(false);
         RoomLibraryOptions options = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        string? skybox = await RoomPack.ReadLibrarySkyboxAsync(stream, index, cancellationToken).ConfigureAwait(false);
         IReadOnlyDictionary<string, RoomEntityCounts> read = await RoomPack.ReadEntityCountsAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
         Dictionary<string, RoomEntityCounts?> counts = new(StringComparer.Ordinal);
@@ -1585,7 +1610,7 @@ public static class RoomCommands
         IReadOnlyDictionary<string, RoomNameSummary> names = await RoomPack.ReadNameSummariesAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
         IReadOnlyDictionary<string, int> lighting = await RoomPack.ReadLightingTurnsAsync(stream, index, cancellationToken).ConfigureAwait(false);
-        return new PackCounts(options, counts, names, libraryEntities, lighting);
+        return new PackCounts(options, counts, names, libraryEntities, lighting) { Skybox = skybox };
     }
 
     private static string Num(float value) => value.ToString("0.##", CultureInfo.InvariantCulture);
@@ -1660,6 +1685,18 @@ public static class RoomCommands
                 .ConfigureAwait(false);
             RoomLibraryOptions libraryOptions = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken)
                 .ConfigureAwait(false);
+
+            // The skybox room, which the link places below every level's
+            // grid: read with the rooms, at its one turn, without navigation.
+            string? skybox = await RoomPack.ReadLibrarySkyboxAsync(stream, index, cancellationToken).ConfigureAwait(false);
+            if (skybox is not null && index.Find(skybox) is null)
+            {
+                await output.WriteLineAsync(
+                    $"ssmap link: the room pack {pack} names skybox room \"{skybox}\" but does not hold it; recompile the library with ssmap room")
+                    .ConfigureAwait(false);
+                return ExitFailed;
+            }
+
             foreach (LevelCell cell in first)
             {
                 if (index.Find(cell.Room) is null)
@@ -1676,7 +1713,10 @@ public static class RoomCommands
                 .LoadRoomsAsync(
                     stream,
                     index,
-                    [.. first.Select(c => new RoomPackRequest(c.Room, turns[c.Room]) { Navigation = !nav.Skip })],
+                    [
+                        .. first.Select(c => new RoomPackRequest(c.Room, turns[c.Room]) { Navigation = !nav.Skip }),
+                        .. skybox is null || turns.ContainsKey(skybox) ? [] : new[] { new RoomPackRequest(skybox, [0]) },
+                    ],
                     cancellationToken)
                 .ConfigureAwait(false);
             // The first room sets the grid; RoomLibrary.Add refuses any other.
@@ -1684,6 +1724,7 @@ public static class RoomCommands
             {
                 Options = libraryOptions,
                 LibraryEntities = libraryEntities,
+                SkyboxRoom = skybox,
             };
             foreach (RoomObject room in rooms)
             {
@@ -1767,8 +1808,9 @@ public static class RoomCommands
                 cancellationToken).ConfigureAwait(false);
 
             // What resolving the rooms' names warned of (references to empty
-            // cells dropped, global names repeated), then the budget's
-            // warnings, then the headroom it always reports.
+            // cells dropped, global names repeated), what linking the areas
+            // warned of, then the budget's warnings, then the headroom it
+            // always reports.
             foreach (string nameWarning in link.NameWarnings)
             {
                 await output.WriteLineAsync($"ssmap link: warning: {nameWarning}").ConfigureAwait(false);
@@ -1777,6 +1819,13 @@ public static class RoomCommands
             foreach (string lightingWarning in link.LightingWarnings)
             {
                 await output.WriteLineAsync($"ssmap link: warning: {lightingWarning}").ConfigureAwait(false);
+            }
+
+            // An area portal the level joins around (its two sides one area
+            // once linked), which the level lists no portal for.
+            foreach (string areaWarning in link.AreaWarnings)
+            {
+                await output.WriteLineAsync($"ssmap link: warning: {areaWarning}").ConfigureAwait(false);
             }
 
             // With the mod's classes a level's arrival and spawn points are

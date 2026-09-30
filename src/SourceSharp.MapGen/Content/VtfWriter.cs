@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 
 using SourceSharp.MapFormats.Assets;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 
 namespace SourceSharp.MapGen.Content;
 
@@ -69,7 +70,18 @@ public static class VtfWriter
             _ => throw new ArgumentException($"{format} is not a format this writer produces", nameof(format)),
         };
 
-        // The top mip, RGBA, and the reflectivity from it.
+        // The top mip, RGBA, and the reflectivity from it. A channel is one
+        // of 256 bytes, so its linear value comes from a table of the 256
+        // powers: DetMath, not Math.Pow, because the reflectivity reaches
+        // vrad's bounce and must not depend on the platform's pow, and a
+        // table because a correctly rounded pow a channel of every texel
+        // would cost minutes over the synthetic content.
+        double[] linear = new double[256];
+        for (int i = 0; i < linear.Length; i++)
+        {
+            linear[i] = DetMath.Pow(i / 255.0, 2.2);
+        }
+
         byte[] top = new byte[width * height * 4];
         double r = 0, g = 0, b = 0;
         for (int y = 0; y < height; y++)
@@ -82,9 +94,9 @@ public static class VtfWriter
                 top[at + 1] = cg;
                 top[at + 2] = cb;
                 top[at + 3] = format == ImageFormat.Bgra8888 ? ca : (byte)255;
-                r += Math.Pow(cr / 255.0, 2.2);
-                g += Math.Pow(cg / 255.0, 2.2);
-                b += Math.Pow(cb / 255.0, 2.2);
+                r += linear[cr];
+                g += linear[cg];
+                b += linear[cb];
             }
         }
 

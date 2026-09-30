@@ -106,6 +106,116 @@ public static class BrushBspTree
     }
 
     /// <summary>
+    /// Which side of a plane a box is on, counting a side only when the box
+    /// reaches <see cref="SplitOnPlaneEpsilon"/> or more across the plane:
+    /// the side test <see cref="TestBrushToPlaneNumber"/> uses under
+    /// <see cref="CompliancePolicy.Correct"/>.
+    /// </summary>
+    /// <param name="mins">The box's minimum.</param>
+    /// <param name="maxs">The box's maximum.</param>
+    /// <param name="plane">The plane.</param>
+    /// <param name="type">The plane's stored type, from the plane table.</param>
+    /// <returns>
+    /// <see cref="PlaneSideFlags.Front"/>, <see cref="PlaneSideFlags.Back"/>
+    /// or <see cref="PlaneSideFlags.Both"/>; never 0.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <b>What it replaces.</b> <see cref="BoxOnPlaneSide"/> calls a box in
+    /// front when its leading corner is
+    /// <see cref="BrushGeometry.PlaneSideEpsilon"/> (0.001) or more in front,
+    /// and behind when its trailing corner is under +0.001 (the general path)
+    /// or more than 0.001 behind (the axial one). A brush that only TOUCHES a
+    /// candidate plane, with a vertex at the corner of its own box, has that
+    /// corner a rounding residual away from the plane, and a residual is as
+    /// likely to be 0.0016 as 0.0004: on 2fort, a slanted plane
+    /// (0, -0.8437, -0.5369) at -1884.74 moved by about 0.0016 at a brush
+    /// corner 2000 units out when <see cref="StockQuirk.PlaneFromPointsNormalise"/>
+    /// was flipped, and the brush went from behind to both. The split
+    /// heuristic counts a both-sided brush on each side, so the plane's
+    /// <c>abs(front - back)</c> term moved by one, another plane won the node
+    /// and the tree below it changed. The epsilon-brush penalty sees the same
+    /// flip: a brush the box calls both-sided goes on to the vertex loop and
+    /// can cost the plane 1000 points, where one the box calls one-sided
+    /// costs nothing.
+    /// </para>
+    /// <para>
+    /// <b>Why 0.1.</b> What the side test predicts is what
+    /// <see cref="SplitBrushList"/> will do with the brush, and a both-sided
+    /// brush is handed to <see cref="BrushGeometry.SplitBrush"/>, which does
+    /// not cut a brush whose furthest vertex is under 0.1 across: it copies
+    /// the brush whole to the other side, to the back when neither side
+    /// reaches 0.1. A box reaching under 0.1 across the plane has every
+    /// vertex under 0.1 across, so calling it both-sided predicts a cut that
+    /// will not happen. This test uses SplitBrush's own line, so it calls a
+    /// side only where SplitBrush would put a piece, and the list the node
+    /// is split into is the same brush for brush. 0.1 is also over ten times
+    /// the rounding a winding vertex carries (about 0.007 at worst), where
+    /// 0.001 is inside it.
+    /// </para>
+    /// <para>
+    /// <b>Only the band is changed.</b> A box that reaches 0.1 or more across
+    /// on both sides is both-sided, as stock has it, even when the brush's
+    /// vertices do not (a wedge whose box corner overhangs a slanted plane):
+    /// that is the box test's approximation, not a rounding cliff, and it is
+    /// left alone. Front is <c>d &gt;= 0.1</c> and back <c>d &lt;= -0.1</c>
+    /// on both paths, the complements of SplitBrush's "not in front" (under
+    /// 0.1) and "not behind" (over -0.1). A box inside the band on both sides
+    /// is behind, which is where SplitBrush sends such a brush, so unlike
+    /// <see cref="BoxOnPlaneSide"/> this never answers 0 and never drops a
+    /// brush from the split.
+    /// </para>
+    /// </remarks>
+    public static int BoxOnPlaneSideBeyondBand(Vec3 mins, Vec3 maxs, Plane plane, PlaneType type)
+    {
+        float dFront;
+        float dBack;
+
+        if (type < PlaneType.AnyX)
+        {
+            int axis = (int)type;
+            dFront = maxs[axis] - plane.Dist;
+            dBack = mins[axis] - plane.Dist;
+        }
+        else
+        {
+            // The same corners, picked the same way, as BoxOnPlaneSide.
+            Span<float> leading = stackalloc float[3];
+            Span<float> trailing = stackalloc float[3];
+
+            for (int i = 0; i < 3; i++)
+            {
+                if (plane.Normal[i] < 0)
+                {
+                    leading[i] = mins[i];
+                    trailing[i] = maxs[i];
+                }
+                else
+                {
+                    leading[i] = maxs[i];
+                    trailing[i] = mins[i];
+                }
+            }
+
+            dFront = Vec3.Dot(plane.Normal, new Vec3(leading[0], leading[1], leading[2])) - plane.Dist;
+            dBack = Vec3.Dot(plane.Normal, new Vec3(trailing[0], trailing[1], trailing[2])) - plane.Dist;
+        }
+
+        int side = 0;
+        if (dFront >= SplitOnPlaneEpsilon)
+        {
+            side = PlaneSideFlags.Front;
+        }
+
+        if (dBack <= -SplitOnPlaneEpsilon)
+        {
+            side |= PlaneSideFlags.Back;
+        }
+
+        return side == 0 ? PlaneSideFlags.Back : side;
+    }
+
+    /// <summary>
     /// The cheap version of the split test, without counting real splits:
     /// <c>QuickTestBrushToPlanenum</c>.
     /// </summary>
@@ -283,7 +393,16 @@ public static class BrushBspTree
         }
 
         Plane plane = context.Planes[planeNumber];
-        int s = BoxOnPlaneSide(brush.Mins, brush.Maxs, plane, context.Planes.TypeOf(planeNumber));
+
+        // StockQuirk.SplitSideTestBoxEpsilon. Stock calls a brush in front of
+        // (or behind) the plane when its box reaches 0.001 across, so a brush
+        // that only touches the plane is counted on both sides or one by the
+        // rounding of its touching corner. Correct counts a side only when the
+        // box reaches SplitOnPlaneEpsilon across, the band inside which
+        // SplitBrush hands the brush over whole.
+        int s = context.Windings.Compliance.Emulates(StockQuirk.SplitSideTestBoxEpsilon)
+            ? BoxOnPlaneSide(brush.Mins, brush.Maxs, plane, context.Planes.TypeOf(planeNumber))
+            : BoxOnPlaneSideBeyondBand(brush.Mins, brush.Maxs, plane, context.Planes.TypeOf(planeNumber));
 
         if (s != PlaneSideFlags.Both)
         {

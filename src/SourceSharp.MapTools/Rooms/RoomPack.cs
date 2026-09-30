@@ -153,9 +153,14 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // does): the link adds each joint's light from it. None for an unlit
         // room, or one compiled with the door light off.
         IReadOnlyList<RoomPackSectionData> doorLight = room.DoorLightOfCompile is { } door ? [door.ToSection()] : [];
+
+        // The area portals likewise, for a room whose compile has any. A
+        // room without them gets no section, so its entry is what it was
+        // before area portals were carried.
+        IReadOnlyList<RoomPackSectionData> areaPortals = room.AreaPortalsOfCompile is { } portals ? [portals.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -294,7 +299,7 @@ public sealed class RoomPackIndex
 /// <listheader><term>Bytes</term><description>What</description></listheader>
 /// <item><term>8</term><description>The magic, <c>SSRPAK01</c> in ASCII (<see cref="Magic"/>).</description></item>
 /// <item><term>4</term><description><c>int32</c> format version (<see cref="Version"/>).</description></item>
-/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/>: <c>ssmap room</c> writes the compile id (<see cref="RoomCompileIds.PackSection"/>, <c>CMPL</c>), then the library-wide entities (<see cref="RoomLibraryEntities.SectionTag"/>) when the library has any, then its settings (<see cref="RoomLibraryOptions.SectionTag"/>) when it makes any.</description></item>
+/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/>: <c>ssmap room</c> writes the compile id (<see cref="RoomCompileIds.PackSection"/>, <c>CMPL</c>), then the library-wide entities (<see cref="RoomLibraryEntities.SectionTag"/>) when the library has any, then its settings (<see cref="RoomLibraryOptions.SectionTag"/>) when it makes any, then the name of its skybox room (<see cref="RoomLibrarySkybox.SectionTag"/>) when it has one.</description></item>
 /// <item><term>4</term><description><c>int32</c> room count, 0 to <see cref="MaxRooms"/>.</description></item>
 /// <item><term>20 per library section</term><description>
 /// The library section table: tag, <c>int64</c> offset from the start of the pack, <c>int64</c> length.
@@ -320,7 +325,9 @@ public sealed class RoomPackIndex
 /// samples at all four turns and the names its compile made after them,
 /// <c>RoomCubemaps</c>), when its compile wrote overlays its overlays
 /// (<c>OVLY</c>: every record's origin and basis at all four turns,
-/// <c>RoomOverlays</c>), and the link work done ahead for it
+/// <c>RoomOverlays</c>), when its compile has area portals its areas and
+/// portals (<c>APRT</c>: the clip vertices at all four turns and the portal
+/// numbers, <c>RoomAreaPortals</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
 /// then per quarter turn <i>r</i> its turned geometry
@@ -911,6 +918,11 @@ public static class RoomPack
                 wanted.Add((name, doorLight));
             }
 
+            if (entry.Find(RoomAreaPortals.SectionTag) is { } areaPortals)
+            {
+                wanted.Add((name, areaPortals));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -1017,9 +1029,10 @@ public static class RoomPack
             RoomDoorLight? doorLight = RoomDoorLight.Read(Section(name, RoomDoorLight.SectionTag), room.Definition, room.Bsp, lighting);
             RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
             RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
+            RoomAreaPortals? areaPortals = RoomAreaPortals.Read(Section(name, RoomAreaPortals.SectionTag), name, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
                 && cubemaps is null && overlays is null
-                && lighting is null && doorLight is null
+                && lighting is null && doorLight is null && areaPortals is null
                 ? room
                 : room with
                 {
@@ -1028,6 +1041,7 @@ public static class RoomPack
                     Overlays = overlays,
                     Lighting = lighting,
                     DoorLight = doorLight,
+                    AreaPortals = areaPortals,
                 };
         }
 
@@ -1087,6 +1101,28 @@ public static class RoomPack
     {
         byte[]? bytes = await ReadLibrarySectionAsync(r, index, RoomLibraryEntities.SectionTag, cancellationToken).ConfigureAwait(false);
         return bytes is null ? [] : await RoomLibraryEntities.ReadAsync(bytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the name of the library's skybox room from a pack whose index
+    /// was just read: its <see cref="RoomLibrarySkybox.SectionTag"/> section,
+    /// or null when the library has no skybox.
+    /// </summary>
+    /// <param name="r">
+    /// The pack, as for <see cref="ReadLibraryOptionsAsync"/>: a stream that
+    /// cannot seek is read forward, in the order <c>ssmap room</c> writes the
+    /// library sections (the skybox after the settings).
+    /// </param>
+    /// <param name="index">The pack's index, read from <paramref name="r"/>.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The skybox room's name, or null.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="LinkException">The section is cut short or out of shape (<see cref="RoomLibrarySkybox.Read"/>).</exception>
+    public static async Task<string?> ReadLibrarySkyboxAsync(
+        Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
+    {
+        byte[]? bytes = await ReadLibrarySectionAsync(r, index, RoomLibrarySkybox.SectionTag, cancellationToken).ConfigureAwait(false);
+        return bytes is null ? null : RoomLibrarySkybox.Read(bytes);
     }
 
     /// <summary>One library section's bytes, or null when the pack has no section of that tag.</summary>
@@ -1386,6 +1422,7 @@ public static class RoomPack
         ((byte)'O', (byte)'V', (byte)'L', (byte)'Y') => RoomOverlays.SectionTag,
         ((byte)'L', (byte)'I', (byte)'T', (byte)'E') => RoomLighting.SectionTag,
         ((byte)'D', (byte)'L', (byte)'I', (byte)'T') => RoomDoorLight.SectionTag,
+        ((byte)'A', (byte)'P', (byte)'R', (byte)'T') => RoomAreaPortals.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),

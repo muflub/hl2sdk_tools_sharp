@@ -141,16 +141,19 @@ In the order it checks:
 1. any non-empty lump outside `LevelLinker.CarriedLumps`. Not in the set:
    `WorldLights(Hdr)`, `DispInfo`, `DispVerts`, `DispTris`,
    `DispLightmapAlphas`, `DispLightmapSamplePositions`, `LeafWaterData`,
-   `ClipPortalVerts`, `WaterOverlays`, `LeafAmbientIndex(Hdr)`,
+   `WaterOverlays`, `LeafAmbientIndex(Hdr)`,
    `LeafAmbientLighting(Hdr)`, `LightingHdr`, `FacesHdr` (`Cubemaps` left
-   the list with PR 12; since PR 11 `Overlays` and `OverlayFades` are
-   carried, and a room with overlays is refused only when it carries no
-   overlay data from its compile);
+   the list with PR 12, `ClipPortalVerts` with PR 13; since PR 11
+   `Overlays` and `OverlayFades` are carried, and a room with overlays is
+   refused only when it carries no overlay data from its compile);
 2. more than one model, or a world model whose head node is not 0 (since
    PR 7 brush models are carried, and a room with them is refused only when
    it carries no brush model data from its compile);
 3. a leaf with `LeafWaterDataId != -1`;
-4. more than two areas or more than one area portal (`RefuseAreaPortals`);
+4. more than two areas or more than one area portal (`RefuseAreaPortals`;
+   since PR 13 areas and area portals are carried, and a room with them is
+   refused only when it carries no area portal data from its compile,
+   `RoomAreaPortalsOf`);
 5. any non-zero byte in any game lump (`RefuseGameLumpContent`: static and
    detail props; since PR 6 static props are carried, and a static prop lump
    with content is refused only when the room carries no static prop data
@@ -163,7 +166,9 @@ In the order it checks:
 `Assemble` takes the pak (until PR 5, which merges every room's), map flags
 and game lumps from the first room only,
 and the areas from the room with the most (all are `{0, 1}`), because every
-other room's are known to be empty or equal (`RequireAgreement`).
+other room's are known to be empty or equal (`RequireAgreement`). Since PR
+13 that holds only for a level without area portals; one with them has its
+areas planned (`PlanAreas`, `WriteAreas`).
 
 ---
 
@@ -267,11 +272,11 @@ or research).
 | Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays refused with water) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
 | Decals (`infodecal`) | carried | nothing | nothing | 1 each (**uncertain** after spawn) | S |
 | `env_cubemap` | carried since PR 12 (samples moved, patches and copies renamed to the level) | samples per rotation, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
-| Area portals | refused | areas, portals, clip verts | area union across joints, optional door portals | 1 per portal | L |
+| Area portals | carried since PR 13 (areas joined at joints, portals and `portalnumber`s rebased, clip verts moved; door portals opt-in) | areas, portals, clip verts per rotation | area union across joints, optional door portals | 1 per portal | L |
 | Occluders | carried; `occludernumber` wrong | occluders per rotation | rebase the key | 1 each (strip candidate) | S |
 | Packed files | carried since PR 5 (merged, deduped, default cubemaps renamed) | the room's pak entries | merge, dedupe, rename | 0 | M |
 | 2D sky | faces carried; no leaf sky flags (no vrad) | sky leaves per room | propagate sky flags across doors | 0 | S |
-| 3D skybox | not possible (areas collapsed) | the skybox as a library section | place it, its own area | 1 `sky_camera` per level | M |
+| 3D skybox | carried since PR 13 (the library's `info_room_skybox` room, placed below the grid, its own area) | the skybox as a library section | place it, its own area | 1 `sky_camera` per level | M |
 | Transition rooms and spawn | not possible | volume, arrival and spawn POIs per rotation | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
 | Navigation (3D) and points of interest | none | in `<library>.roomnav`: volumes, door portals and POIs per rotation | stitch at joined doors into the `<map>.nav3d` sidecar | 0 (POIs stripped) | L, blocked (section 10) |
 | Lighting | none (no vrad at pack time) | base and capture ×1, or ×4 if sunlit; door response ×1 or ×4 by measurement | sum captures × responses | lights: see 6.3 | L |
@@ -749,9 +754,11 @@ of `ClipPortalVerts`), each leaf's and node's area, and occluder areas
 `VbspCompilation.Compute3DSkyboxAreas` records the areas holding a
 `sky_camera`.
 
-**Today.** Refused (`RefuseAreaPortals`); every room is area 1 and the level
-is one area (`Assemble`). The linker's own remarks give the reason: two
-areas with no portal between them are two worlds to the server.
+**Today.** Carried since PR 13 (section 13, its landed note), door portals
+included as a library's opt-in. Before it, refused (`RefuseAreaPortals`);
+every room was area 1 and the level one area (`Assemble`). The linker's own
+remarks gave the reason: two areas with no portal between them are two
+worlds to the server, which the union below keeps from happening.
 
 **Pack vs link.** Per room: areas, portals, clip verts, leaf and node areas,
 `portalnumber` keys. At link:
@@ -801,8 +808,11 @@ counts twice), clip verts `ushort` start (`MaxMapPortalVerts` 128,000 in
 leaves it out of the world bounds (`EntityStage.ComputeBoundsNoSkybox`) and
 vrad recasts sky rays into it from camera-less areas (`Rad/Light/SkyCameras`).
 
-**Today.** 2D sky faces carried; no leaf has sky flags (no vrad). A 3D skybox
-cannot exist: it needs its own area and is outside every cell.
+**Today.** 2D sky faces carried; leaf sky flags since PR 9 (its landed
+note). The 3D skybox is carried since PR 13 (section 13, its landed note):
+the library's `info_room_skybox` room below every level's grid, its own
+area. Before it, a 3D skybox could not exist: it needs its own area and is
+outside every cell.
 
 **Pack vs link.** Per room: its sky leaves (pass one). At link: pass two over
 the linked PVS (a leaf is sky-visible if a sky leaf is in its row), cheap and
@@ -1702,7 +1712,7 @@ navigation design).
 | `worldspawn` keys | Rooms must agree (`RequireSameWorld`); the split copies the library's worldspawn into every room, so they do. | Keep. `world_mins`/`world_maxs` stay the union (`MergeEntities`). |
 | `light_environment` | Carried per room and turned (finding 5). | **Decided (D3):** library-wide. The library holds one, outside every cell (the split collects it instead of ignoring it). A room that carries one is refused at pack time unless its keys equal the library's, in which case it is dropped from the room. Never turned. |
 | Sky settings (`skyname`, the sun's sky colours) | `skyname` agrees through worldspawn. | Library-wide with the sun (D3). |
-| `sky_camera` | Room-local if present. | Only in the library's skybox (4.12); refused in rooms. |
+| `sky_camera` | Room-local if present. | Only in the library's skybox (4.12); refused in rooms. Done since PR 13: exactly one in the skybox room, which every level carries once. |
 | `env_fog_controller`, `env_tonemap_controller`, `shadow_control`, `postprocess_controller` | Carried, one per room that has one; the game takes the first or a master (**uncertain** per class). | Library-wide like the sun: collected from the gaps; a room copy refused unless equal. Per-room fog uses a trigger and a named controller, as a normal map does. |
 | `water_lod_control` | vbsp adds one per room with water. | Keep the first; drop equal duplicates; refuse different ones. |
 | `info_player_start` | Carried, one per room with one (the sample's end rooms). | **Decided (D15):** rooms' own starts are stripped; the level spawn is the up room's arrival (11.5). |
@@ -3106,6 +3116,224 @@ against 27.2 MB (+8%); its 33 x 33 level links in 2.5 to 2.7 s lit against
 The 3x3 sample packs to 561 KB lit against 518 KB, its level to 125 KB
 against 98 KB; every level of the 3x3 and transit samples links lit and
 passes `ssmap check`, in both emission modes for the transit run.
+
+**PR 13 landed** (area portals and areas, then the 3D skybox, in that
+order on one branch).
+`ssmap room` describes a room whose compile has area portals in one `APRT`
+section (`RoomAreaPortals`, with the 1.1 framing: codec byte, decoded
+length, revision; codec none): the room's area count, listing count and
+clip vertex count (its three lumps stay in the container byte for byte and
+are checked against what vbsp writes, reserved area 0 and listing 0 empty,
+each area's run after the last, every listing naming an area, portal,
+plane and vertices the room has), the portal numbers its compile gave out
+(its `func_areaportal` and `func_areaportalwindow` entities, 1 to k once
+each), then the rotation count (4) and per turn every clip vertex turned.
+A room without area portals gets no section, so a library without them
+packs to the same bytes. The link plans the level's areas after the bases
+(`LevelLinker.PlanAreas`): every placement's own areas start apart; at a
+joint, every area the facing clusters of one side lie in joins every area
+the other side's lie in (a union-find whose lower node is the root, so the
+result does not depend on the order joints are met); the level's areas are
+numbered from 1 in the order their first member appears, placement by
+placement in link order. That is today's collapse generalised: rooms
+without a portal are one area each, and a level of them one area. A
+placement's portal numbers follow every earlier placement's
+(`RoomPlan.PortalBase`), its entities' `portalnumber` rebased the same way
+(`TranslateEntity`), as the flattened level's loader numbers them in entity
+order. Leaves, nodes (a node wholly in one area; a mixed one stays -1),
+occluders and the carved doorway leaves take their level areas. The
+`Areas`, `AreaPortals` and `ClipPortalVerts` lumps are written from the
+plan (`LevelLinker.WriteAreas`): area by area, each area's listings in the
+order of their linked numbers (vbsp lists a map's portals area by area and
+under each in entity order), a listing's plane the room's through the
+shared table (`PlaneRef`, oriented into the listing's own area as vbsp
+orients it), its outline a copy of the room's clip vertices at the
+placement's turn plus its translation. A level whose rooms have no area
+portal (and whose library asks for no door portals) carries the one open
+area as before, the first room's two lumps byte for byte, and no clip
+vertex lump; no digest moved. The pack format version stays 4: `APRT` is a
+tag an older build skips, and that build refuses a room with area portals
+by its lumps; a pack written before this PR has no `APRT` for such a room,
+and this build refuses it with `room {room} has {k} area portals but no
+area portal data from its compile (a pack written before the link carried
+area portals, or a room built without ssmap room); recompile the library
+with ssmap room.`, which also guarantees every linked portal was held to
+the rules below when its room was packed. The old refusal (`... a linkable
+room has no area portal ...`) is gone, a fact asserting so.
+
+- **The relation to door visibility.** Area portals do not cut the linked
+  PVS: vvis sees through an area portal (the engine closes it at runtime),
+  so a room's own rows already look through its portals, and the door
+  flows (Q3) are unchanged; a fact holds a line through both a doorway and
+  a portal to be kept, as vvis on the flattened level keeps it. The door
+  portals below stand on the doorway rectangles the flows look through, so
+  the doorway the PVS says a line crosses is the one a portal can close.
+- **O10 as recommended**: joints open and areas unioned; author portals
+  only by default; door portals opt-in per kit. A library's kit is the
+  library's, so the switch is a library key, `rooms_door_portals 1`
+  (`RoomLibraryOptions.DoorPortals`, in the `LOPT` section, written only
+  when set, a library key the split and the flatten keep out of the
+  rooms). With it, every joint gets a door portal (`LevelDoorPortals`), no
+  joint joins areas, and each room's areas stay its own: the portal's
+  plane is the cell face (the top tree's split between the two cells, so
+  it is found in the shared table), its outline the doorway's rectangle on
+  it in the order vbsp's hull walk leaves it (`AreaPortalGeometry.Hull`,
+  extracted from the clip geometry), numbered after every placement's own
+  portals in plan order (each joint once, from its earlier placement, in
+  that placement's joint order), its `func_areaportal` written after every
+  other entity with `portalnumber` and, when the joint's kept socket
+  furniture (the furniture rule's side) is a named `func_door` or
+  `func_door_rotating` without `room_needs`, `target` naming it resolved
+  for its placement, else `StartOpen 1`. The flatten writes the same
+  entity at the end of its entities with one brush of `tools/toolsareaportal`
+  filling the doorway a unit either side of the cell face. Each costs one
+  entity: the link's budget counts one `func_areaportal` per joint with the
+  level's own entities, and `ssmap layout -entity-budget` charges each room
+  half its sockets, rounded up, which never under-counts. A level of more
+  than 255 rooms with door portals passes `MAX_MAP_AREAS` and is refused.
+- **Refusals.** At pack time (the split, so the pack and the flatten alike,
+  and a room compile given a VMF): 15.4's socket row, `room {room}:
+  func_areaportal {id} lies in socket "{socket}"'s plug box.` (the class
+  written as the entity's, so a window says `func_areaportalwindow`), for
+  a portal brush that overlaps a plug box beyond the cell tolerance
+  (touching its face is allowed: a portal dividing a room from its
+  neighbour stands just inside the doorway); two refusals the table does
+  not list, `room {room}: func_areaportal {id} has room_socket; an area
+  portal is built into its room's world and cannot be socket furniture.`
+  and `room {room}: entity {id} (func_areaportal) has room_needs, but an
+  area portal is built into its room's compile and cannot be dropped.`
+  (vbsp moves a portal's brush into the world, so the link could not drop
+  it, and dropping it would renumber every later portal). At link: the
+  loader's caps, `MAX_MAP_AREAS` (256 entries, area 0 included) naming the
+  placement whose area crossed it, `MAX_MAP_AREAPORTALS` (1024 listings),
+  and the `ushort` fields of a listing's key and first clip vertex (vbsp's
+  own 128,000 vertex cap is wider than the field).
+- **A portal the level joins around.** When the rooms around a portal join
+  its two sides into one area (a ring), vbsp, meeting that in the
+  flattened level, warns that the portal does not touch two areas and
+  lists nothing for it, keeping the entity and its number; the link does
+  the same and prints `room {room} at cell ({x}, {y}): area portal {n} has
+  one area on both sides once the level joins the rooms around it; the
+  level keeps its entity but lists no portal for it.` (`ssmap link`,
+  before the headroom line), rather than refusing a layout the generator
+  may well make.
+- **Storage** is four turns, the 1.1 default for data the link would turn
+  point by point: a portal's clip vertices are a handful of points, so
+  either storage is far below what the link's timings resolve; a count of
+  1 is read and links to the same bytes (a fact).
+- **Known differences, not refused.** Which face of a portal's brush vbsp
+  puts the portal on, and which side's area the brush's own leaf takes,
+  follow the order its area flood meets the portal's two sides, which a
+  room's compile and the flattened level's need not share: the linked and
+  flattened portals have the same outline and normal and lie on one face
+  or the other of the brush, and the facts compare the partition of open
+  space outside portal brushes and the portals by outline, holding each
+  map's to a face of the brush (for door portals, the link's on the cell
+  face and the flattened one a unit off it). The areas themselves are
+  numbered differently in the two maps (the link by placement, vbsp by its
+  flood), the same partition up to renaming (4.11's equivalence).
+
+Measured equivalence: the harness split room (an inner wall whose doorway
+a portal fills, sockets east and west) between two hubs at the four turns,
+two of them in a row with portal and window classes, a ring of hubs around
+it, and door portals on the same levels and on a hub with a door as socket
+furniture, each linked and flattened and compiled whole: the same partition
+into areas of every open sample point, the same portals by outline between
+the same areas, the same portal numbers and portal entities; a lit library
+with a portal links with the unlit link's areas and portals, and passes
+`ssmap check`; a level with portals through the CLI (`ssmap room`, `ssmap
+link`, `ssmap check`) has no error. Area portals cost what 15.6 lists: one
+entity each (`func_areaportal`, a default `edict` class), counted from the
+compiled lump, so the budget needed no change for author portals. Not done
+here: the 3x3 sample did not grow a portal room (the harness levels carry
+the facts at every turn, and the sample's digests show a level without
+portals links as before), the stress library has none, and `ssmap rooms`
+does not list portals.
+
+**The 3D skybox (PR 13, second half).** A library marks its skybox room
+with an `info_room_skybox` point entity at the cell's low corner, with a
+`name` like a room's (O11 as recommended); the cell is the library's grid,
+and the split (`RoomLibraryVmf.SplitLibrary`) owns the brushes and entities
+in it as a room's and sets the room apart (`RoomLibrarySplit.Skybox`, not
+one of the rooms, so no level and no `ssmap layout` places it). Its rules,
+each refused by the split, so by the pack and the flatten: one skybox at
+most (`the library has {k} info_room_skybox entities; a library has one
+skybox room at most.`), exactly one `sky_camera` (`the skybox room
+"{room}" has {k} sky_camera entities; the engine draws a skybox from
+exactly one.`), no socket (`the skybox room "{room}" has a door plug on its
+{wall} wall; the skybox is never joined, so it has no sockets.`), and no
+`room_needs` or `room_socket` (`room {room}: entity {id} ({class}) has
+{key}, but the skybox room has no neighbours and no sockets.`); the library
+singletons' rules hold for it as for a room, and a `sky_camera` anywhere
+else is refused as PR 4 refused it. `ssmap room` compiles, lights and packs
+it after the rooms like any room, and names it in a `SKYB` library section
+(`RoomLibrarySkybox`: codec byte, length, revision, the name), written only
+for a library with a skybox; `ssmap link` reads the section and loads the
+skybox with the rooms, at its one turn. The pack format version stays 4:
+an older build skips the tag and links a level without its skybox, as it
+always did.
+
+- **Placement: below the grid** (O11), one cell under the level's lowest
+  column and row (`LevelLinker.SkyboxPlacement`), unturned (4.12: the
+  skybox is never turned): a placement's `Level` of -1, which only
+  `RoomTransform` reads, as a whole number of cells along z (a height on
+  the grid's level keeps its bits, a negative zero included). The link
+  carries the skybox after every room of the level, never in the layout:
+  the grid's logic (joints, neighbours, reachability, furniture,
+  transitions, names, the door flows, the door portals) reads the level's
+  own placements (`GridCells`, `OnGrid`), since the skybox shares its
+  cell's column and row. The top tree gains a root at the grid's floor
+  (z = 0): above it the grid's tree as before, below it the skybox room's
+  own tree, whose sealed compile puts everything outside its shell in
+  solid leaves, as the grid's single-cell nodes rely on above and below a
+  cell; the shared solid leaf reaches a cell further down. The flatten
+  writes the skybox's brushes after every room's and its entities after
+  every room's, moved by the same placement.
+- **Its own area.** The skybox has no joint, so its areas join nothing
+  (the level's areas are planned whenever a library has a skybox) and it
+  is an area of its own, numbered after the rooms', as vbsp's flood makes
+  a sealed skybox; its clusters see only one another (its own vvis rows).
+  The level's `world_mins` and `world_maxs` leave it out, as vbsp leaves a
+  3D skybox out of them (`EntityStage.ComputeBoundsNoSkybox`), and model
+  0's bounds keep it, as vbsp's do.
+- **Its entities** are moved to it, never through the naming resolver (it
+  stands in no cell of the grid, so a room-local name in it is written as
+  authored, in the link and the flatten alike), and written after every
+  room's and before the door portals', where the flatten writes them. They
+  count once per level with the library's own entities, in the link's
+  budget and in `ssmap layout -entity-budget`: one `sky_camera` per level
+  (6.8), plus whatever else the skybox holds.
+- **Lighting.** Under a lit library the skybox is baked like any room and
+  its leaves take the link's sky pass (PR 9), which flags them as seeing
+  3D sky (their own shell). 4.12's "every room's bake includes the skybox
+  geometry for the sky-ray recast" is not done: each room is baked sealed
+  and alone at pack time, and a recast into the skybox would need the
+  skybox's geometry in every room's vrad run, which is the lighting
+  work's (PR 10, with the door terms). Until then a room's sky light is
+  what an empty skybox would give; a skybox whose own geometry would
+  shadow a room's sky is a known difference from the flattened level's
+  full compile.
+
+Measured equivalence: the harness's hub and other room with the skybox (a
+3D sky shell, a block, a prop and its camera) at the four turns, with an
+area portal room and door portals, and lit with a sun and a sky ceiling:
+the linked and flattened maps put every sample point of the rooms' cells
+and the skybox's in the same open space and areas (one to one), carry the
+same `sky_camera`, props and world bounds, and the linked map passes
+`ssmap check`; through the CLI, `ssmap room` packs the skybox and `ssmap
+link` places it from the pack alone. Not done here: the 3x3 sample did not
+grow a skybox (its digests show a library without one links as before),
+`ssmap rooms` does not list it, and the stress library has none.
+
+Measured against the base (PR 9's head), the whole `ssmap` process on a busy
+4-core machine: the 3x3 and transit samples pack, link (both modes for the
+transit run) and pass `ssmap check` with its one warning (no cubemap
+sample), their linked maps the same bytes but for the pack and level ids
+stamped in the worldspawn (the pack id records the build); the 256-room
+stress library's 33 x 33 level links in 1.5 to 1.7 s against 1.6 to 1.7 s,
+to the same bytes, and passes `ssmap check`; `ssmap all` on 2fort and the
+sandbox writes the same maps as before. The link spends nothing on areas
+for a level without area portals, door portals or a skybox.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity

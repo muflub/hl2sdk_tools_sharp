@@ -117,10 +117,22 @@ public static class LevelFlattener
 
         RoomDefinition first = rooms[0].Definition;
         LevelLayout layout = level.ToLayout(
-            name => byName.TryGetValue(name, out LibraryRoom? room) ? room.Definition : null,
+            name => byName.TryGetValue(name, out LibraryRoom? room) ? room.Definition
+                : split.Skybox is { } sky && sky.Definition.Name == name ? sky.Definition : null,
             first.CellSize,
             first.Kit);
         layout.Validate();
+
+        // The skybox room is the link's to place (below the grid), never the
+        // level's, with the link's refusal.
+        if (split.Skybox is { } skyboxRoom
+            && layout.Rooms.FirstOrDefault(r => string.Equals(r.Placement.Room, skyboxRoom.Definition.Name, StringComparison.Ordinal)) is { } placesSkybox)
+        {
+            throw new LinkException(
+                $"level {layout.Name} places the skybox room {skyboxRoom.Definition.Name} at cell ({placesSkybox.Placement.CellX}, {placesSkybox.Placement.CellY});"
+                + " the link places the skybox below the grid itself.");
+        }
+
         RoomLinter.CheckReachable(layout, name => byName[name].Definition);
 
         // The level's transitions and spawn, by the link's rule, from the
@@ -266,6 +278,53 @@ public static class LevelFlattener
             });
         }
 
+        // The door portals are planned from the rooms' entities as the room
+        // compiles read them, before writing strips the furniture keys.
+        IReadOnlyList<LevelDoorPortal> doors = libraryOptions.HasDoorPortals
+            ? LevelDoorPortals.Plan(
+                layout,
+                name => byName[name].Definition,
+                FurnitureOf,
+                (p, socket) => LevelDoorPortals.DoorName(
+                    placedSides[p].Entities.Select(e => (Func<string, string?>)e.GetValue), socket, layout.Rooms[p].Placement))
+            : [];
+
+        // The library's skybox below the grid (LevelLinker.SkyboxOf): its
+        // brushes after every room's, its entities kept aside and written
+        // after every room's, as the link writes them; never turned, never
+        // resolved (it stands in no cell of the grid).
+        List<VmfChunk> skyboxEntities = [];
+        if (split.Skybox is { } skybox)
+        {
+            QuarterTurn below = QuarterTurn.Of(new RoomTransform(LevelLinker.SkyboxPlacement(layout, skybox.Definition.Name), layout.CellSize));
+            PlacedSides placed = new();
+            foreach (VmfChunk solid in skybox.Document.GetChunk(MapFileLoader.WorldChunk)!.GetChunks(MapFileLoader.SolidChunk))
+            {
+                VmfChunk moved = VmfPlacement.MoveSolid(solid, below);
+                placed.AddSides(moved);
+                flatWorld.Children.Add(moved);
+            }
+
+            foreach (VmfChunk entity in skybox.Document.GetChunks(MapFileLoader.EntityChunk))
+            {
+                if (RoomPois.IsPoi(entity))
+                {
+                    continue;
+                }
+
+                VmfChunk moved = VmfPlacement.MoveEntity(entity, below);
+                foreach (VmfChunk solid in moved.GetChunks(MapFileLoader.SolidChunk))
+                {
+                    placed.AddSides(solid);
+                }
+
+                placed.Entities.Add(moved);
+                skyboxEntities.Add(moved);
+            }
+
+            placedSides.Add(placed);
+        }
+
         LevelResolution? resolution = null;
         if (resolving)
         {
@@ -293,6 +352,26 @@ public static class LevelFlattener
             {
                 flat.Chunks.Add(WithoutFurnitureKeys(resolution is null ? (VmfChunk)entity.Payload! : Write(entity)));
             }
+        }
+
+        foreach (VmfChunk entity in skyboxEntities)
+        {
+            if (singletons.Keep(
+                split.Skybox!.Definition.Name,
+                layout.Rooms.Count,
+                entity.GetValue("classname") ?? string.Empty,
+                [.. entity.Keys.Select(k => new KeyValuePair<string, string>(k.Name, k.Value))]))
+            {
+                flat.Chunks.Add(entity);
+            }
+        }
+
+        // The library's door portals, one per joint, after every other
+        // entity and in the link's order, each with its brush astride the
+        // cell face (LevelDoorPortals), so vbsp numbers them as the link does.
+        foreach (LevelDoorPortal door in doors)
+        {
+            flat.Chunks.Add(LevelDoorPortals.FlatEntity(door, layout, name => byName[name].Definition));
         }
 
         int next = 1;

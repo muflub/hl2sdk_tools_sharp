@@ -11,6 +11,8 @@ using System.Globalization;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+
+using SourceSharp.MapTools.Bsp;
 using SourceSharp.RoomContracts;
 
 namespace SourceSharp.MapTools.Rooms;
@@ -386,7 +388,8 @@ internal sealed class RoomNameTables
 /// <b>room_needs</b> (<see cref="RoomNeeds"/>) must parse, and may not sit on
 /// a baked light (its light is in the room's lighting and cannot be dropped),
 /// on an <c>info_overlay</c> (a record of the room's compile, which the
-/// accessors number) or on a <c>prop_static</c> that casts shadows (its
+/// accessors number), on an area portal (its brush is the room's world and
+/// its number one of the room's portals) or on a <c>prop_static</c> that casts shadows (its
 /// shadow would stay).
 /// </para>
 /// <para>
@@ -697,6 +700,16 @@ internal static class RoomNameAnalysis
         {
             throw new RoomLintException(
                 $"room {room}: entity {entity.Id} (info_overlay) has room_needs, but an overlay is built into its room's compile and cannot be dropped.");
+        }
+
+        // An area portal's brush is moved into its room's world by vbsp and
+        // its number is one of the room's portals, so the link cannot leave
+        // it out while the flattened compile would (and would renumber every
+        // later portal). Refused, like an overlay.
+        if (MapFileLoader.IsAreaPortal(className))
+        {
+            throw new RoomLintException(
+                $"room {room}: entity {entity.Id} ({className}) has room_needs, but an area portal is built into its room's compile and cannot be dropped.");
         }
 
         if (string.Equals(className, "prop_static", StringComparison.Ordinal)
