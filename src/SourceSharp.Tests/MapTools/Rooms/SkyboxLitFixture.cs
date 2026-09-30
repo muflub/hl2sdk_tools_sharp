@@ -150,20 +150,45 @@ public sealed class SkyboxLitFixture : IAsyncLifetime
     /// <summary>The rooms lit with their door light sealed and alone, as before the skybox joined the bake; compiled on first use.</summary>
     public Task<RoomLibrary> DoorLitSealedAsync() => _doorLitSealed.Value;
 
-    /// <summary>A level of the given rows linked from the rooms lit with their door light.</summary>
-    public Task<LinkedLevel> DoorLinkedAsync(string row, bool sealedBake = false) =>
-        _levels.GetOrAdd((sealedBake ? "sealed:" : "door:") + row, _ => new Lazy<Task<LinkedLevel>>(async () =>
-            await RoomLightHarness.LinkAsync(await (sealedBake ? DoorLitSealedAsync() : DoorLitAsync()), RoomPropHarness.Level(row)))).Value;
+    /// <summary>A level of the given rows (north first) linked from the rooms lit with their door light.</summary>
+    public Task<LinkedLevel> DoorLinkedAsync(string row, bool sealedBake = false) => DoorLinkedAsync([row], sealedBake);
 
-    /// <summary>A level of the given rows linked from the lit rooms.</summary>
-    public Task<BspData> LinkedAsync(string row) => MapAsync("lit:" + row, async () => (await RoomLightHarness.LinkAsync(Lit, RoomPropHarness.Level(row))).Bsp);
+    /// <summary>A level of the given rows (north first) linked from the rooms lit with their door light.</summary>
+    public Task<LinkedLevel> DoorLinkedAsync(string[] rows, bool sealedBake = false) =>
+        _levels.GetOrAdd((sealedBake ? "sealed:" : "door:") + Key(rows), _ => new Lazy<Task<LinkedLevel>>(async () =>
+            await RoomLightHarness.LinkAsync(await (sealedBake ? DoorLitSealedAsync() : DoorLitAsync()), RoomPropHarness.Level(rows)))).Value;
+
+    /// <summary>A level of the given rows (north first) linked from the lit rooms.</summary>
+    public Task<LinkedLevel> LinkedLevelAsync(params string[] rows) =>
+        _levels.GetOrAdd("lit:" + Key(rows), _ => new Lazy<Task<LinkedLevel>>(() => RoomLightHarness.LinkAsync(Lit, RoomPropHarness.Level(rows)))).Value;
+
+    /// <summary>A level of the given rows (north first) linked from the lit rooms.</summary>
+    public async Task<BspData> LinkedAsync(params string[] rows) => (await LinkedLevelAsync(rows)).Bsp;
 
     /// <summary>The level linked from the unlit rooms, then lit by vrad as it stands (the skybox included).</summary>
-    public Task<BspData> RelitAsync(string row) => MapAsync("relit:" + row, async () =>
-        await RoomLightHarness.RelightAsync((await RoomLightHarness.LinkAsync(Unlit, RoomPropHarness.Level(row))).Bsp, Options));
+    public Task<BspData> RelitAsync(params string[] rows) => MapAsync("relit:" + Key(rows), async () =>
+        await RoomLightHarness.RelightAsync((await RoomLightHarness.LinkAsync(Unlit, RoomPropHarness.Level(rows))).Bsp, Options));
 
     /// <summary>The level flattened and compiled whole: vbsp, vvis and vrad with the rooms' switches.</summary>
-    public Task<BspData> FlatAsync(string row) => MapAsync("flat:" + row, () => RoomLightHarness.CompileFlatLitAsync(Library, RoomPropHarness.Level(row), Options));
+    public Task<BspData> FlatAsync(params string[] rows) => MapAsync("flat:" + Key(rows), () => RoomLightHarness.CompileFlatLitAsync(Library, RoomPropHarness.Level(rows), Options));
+
+    /// <summary>
+    /// The rows (north first) of a level with the given rooms at the given
+    /// cells, every other cell of its grid empty.
+    /// </summary>
+    public static string[] Rows(params (string Room, int X, int Y)[] rooms)
+    {
+        int columns = rooms.Max(r => r.X) + 1, rows = rooms.Max(r => r.Y) + 1;
+        string[] text = new string[rows];
+        for (int y = rows - 1; y >= 0; y--)
+        {
+            text[rows - 1 - y] = string.Join(", ", Enumerable.Range(0, columns).Select(x => rooms.FirstOrDefault(r => r.X == x && r.Y == y).Room ?? "~"));
+        }
+
+        return text;
+    }
+
+    private static string Key(string[] rows) => string.Join(" / ", rows);
 
     private Task<BspData> MapAsync(string key, Func<Task<BspData>> make) =>
         _maps.GetOrAdd(key, _ => new Lazy<Task<BspData>>(make)).Value;

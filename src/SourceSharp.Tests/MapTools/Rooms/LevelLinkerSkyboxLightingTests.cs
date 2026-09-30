@@ -139,28 +139,129 @@ public sealed class LevelLinkerSkyboxLightingTests(SkyboxLitFixture fixture, ITe
     }
 
     /// <summary>
-    /// The known difference the bake cannot hold: a sky room one cell east
-    /// of its bakes' cell. vrad recasts a sample at <c>p</c> to
-    /// <c>camera + p / scale</c>, so the room's recast starts lie 16 units
-    /// further east in the skybox (its 256-unit cell over the scale of 16),
-    /// past the overhang's edge, and vrad of the level shades the room far
-    /// less than its bake does: measured, elsewhere p95 0.42 to 0.46, energy
-    /// 0.90, the sealed bake nearer (p95 0.02). Held here so the parallax
-    /// stays what the design note says it is: the linked room's own light is
-    /// the bake's, cell for cell, and only darker than vrad's (the overhang
-    /// the bake saw), never brighter.
+    /// The sky room alone and capped away from its bakes' cell, at (1, 0) and
+    /// (2, 3) and every quarter turn. vrad of the link recasts its sky rays
+    /// from <c>camera + p / scale</c>, 16 skybox units a cell further along
+    /// than its bakes did, so where the overhang's shadow falls moves; the
+    /// link adds the room's sun layer times the change in the skybox sun
+    /// map's visibility between its cell and its bakes' (the rooms design,
+    /// the skybox parallax, D36). Held against vrad of the linked map within
+    /// the residual that design leaves (the sky ambient's own parallax and
+    /// the sun change's bounce, not corrected). Red before the correction:
+    /// p95 0.64 to 0.75 and energy about 0.73, the bake's overhang shadow
+    /// where vrad has none.
     /// </summary>
-    [Fact]
-    public async Task ASkyRoomAwayFromItsBakesCellSeesTheSkyboxFromThere()
+    [Theory]
+    [MemberData(nameof(AwayCells))]
+    public async Task ASkyRoomAwayFromItsBakesCellLinksToVradOfItsLink(int x, int y, int rotation)
     {
-        const string row = "hub@0, other@0";
-        LinkedLevel level = await fixture.DoorLinkedAsync(row);
+        string[] rows = SkyboxLitFixture.Rows(($"other@{rotation}", x, y));
+        LuxelMetric metric = Luxels(await fixture.LinkedAsync(rows), await fixture.RelitAsync(rows));
+        output.WriteLine($"other@{rotation} at ({x}, {y}) against vrad of its link: {metric}");
+        AssertWithinParallaxTolerances(metric);
+    }
+
+    /// <summary>
+    /// The same rooms against the flattened level's full compile (vbsp,
+    /// vvis, vrad), within the same tolerances.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AwayCells))]
+    public async Task ASkyRoomAwayFromItsBakesCellAgreesWithItsFlattenedFullCompile(int x, int y, int rotation)
+    {
+        string[] rows = SkyboxLitFixture.Rows(($"other@{rotation}", x, y));
+        LuxelMetric metric = Luxels(await fixture.LinkedAsync(rows), await fixture.FlatAsync(rows));
+        output.WriteLine($"other@{rotation} at ({x}, {y}) against the flattened compile: {metric}");
+        AssertWithinParallaxTolerances(metric);
+    }
+
+    /// <summary>
+    /// The sky room beside the hub, jointed, its cell (1, 0) or (2, 3) and
+    /// every quarter turn, lit with their door light: against vrad of the
+    /// link within PR 10's door-light tolerances. Red before the correction
+    /// at (1, 0): elsewhere p95 0.42 to 0.46, energy 0.90.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AwayCells))]
+    public async Task AJointedSkyRoomAwayFromItsBakesCellAgreesWithVradOfTheLink(int x, int y, int rotation)
+    {
+        string[] rows = SkyboxLitFixture.Rows(($"hub@{rotation}", x - 1, y), ($"other@{rotation}", x, y));
+        LinkedLevel level = await fixture.DoorLinkedAsync(rows);
         List<DoorLightCompare.Joint> joints = DoorLightCompare.Joints(level);
-        DoorLightCompare.Metric door = DoorLightCompare.Measure(level.Bsp, await fixture.RelitAsync(row), joints, allStyles: true);
-        output.WriteLine($"{row}: {door}");
-        Assert.True(door.FarP95 > 0.3, $"far p95 {door.FarP95}");
-        Assert.InRange(door.Energy, 0.85, 0.95);
-        Assert.True(door.ExcessP99 <= 0.05, $"excess p99 {door.ExcessP99}");
+        Assert.NotEmpty(joints);
+        DoorLightCompare.Metric door = DoorLightCompare.Measure(level.Bsp, await fixture.RelitAsync(rows), joints, allStyles: true);
+        output.WriteLine($"hub, other@{rotation} at ({x}, {y}) against vrad of the link: {door}");
+        AssertWithinDoorLightTolerances(door);
+    }
+
+    /// <summary>The same jointed levels against their flattened full compile.</summary>
+    [Theory]
+    [MemberData(nameof(AwayCells))]
+    public async Task AJointedSkyRoomAwayFromItsBakesCellAgreesWithItsFlattenedFullCompile(int x, int y, int rotation)
+    {
+        string[] rows = SkyboxLitFixture.Rows(($"hub@{rotation}", x - 1, y), ($"other@{rotation}", x, y));
+        LinkedLevel level = await fixture.DoorLinkedAsync(rows);
+        List<DoorLightCompare.Joint> joints = DoorLightCompare.Joints(level);
+        DoorLightCompare.Metric door = DoorLightCompare.Measure(level.Bsp, await fixture.FlatAsync(rows), joints, allStyles: true);
+        output.WriteLine($"hub, other@{rotation} at ({x}, {y}) against the flattened compile: {door}");
+        AssertWithinDoorLightTolerances(door);
+    }
+
+    /// <summary>The cells away from the bakes' (1, 0) and (2, 3), at every quarter turn.</summary>
+    public static TheoryData<int, int, int> AwayCells
+    {
+        get
+        {
+            TheoryData<int, int, int> data = [];
+            foreach ((int x, int y) in ((int, int)[])[(1, 0), (2, 3)])
+            {
+                foreach (int rotation in (int[])[0, 90, 180, 270])
+                {
+                    data.Add(x, y, rotation);
+                }
+            }
+
+            return data;
+        }
+    }
+
+    private static void AssertWithinParallaxTolerances(LuxelMetric metric)
+    {
+        Assert.True(metric.Count > 0);
+        Assert.True(metric.P95 <= 0.05, $"p95 {metric.P95}");
+        Assert.True(metric.P99 <= 0.1, $"p99 {metric.P99}");
+        Assert.InRange(metric.Energy, 0.98, 1.02);
+    }
+
+    /// <summary>How two maps' luxels at the same points compare: count, quantiles of the relative difference, and the first's energy over the second's.</summary>
+    internal readonly record struct LuxelMetric(int Count, double P95, double P99, double Max, double Energy)
+    {
+        public override string ToString() => $"{Count} luxels, p95 {P95:F3}, p99 {P99:F3}, max {Max:F3}, energy {Energy:F3}";
+    }
+
+    /// <summary>The luxels two maps hold at the same points (thin faces left out), compared.</summary>
+    internal static LuxelMetric Luxels(BspData a, BspData b)
+    {
+        var la = LitCompare.Lattice(a);
+        var lb = LitCompare.Lattice(b);
+        List<double> relative = [];
+        double ea = 0, eb = 0;
+        foreach ((var key, (List<ColorRgbExp32> colours, bool thin)) in la)
+        {
+            if (!lb.TryGetValue(key, out var other) || thin || other.Thin)
+            {
+                continue;
+            }
+
+            relative.Add(colours.Min(c => other.Colours.Min(o => LitCompare.Relative(c.ToLinear(), o.ToLinear()))));
+            Vec3 ca = colours[0].ToLinear(), cb = other.Colours[0].ToLinear();
+            ea += ca.X + ca.Y + ca.Z;
+            eb += cb.X + cb.Y + cb.Z;
+        }
+
+        relative.Sort();
+        return new LuxelMetric(
+            relative.Count, LitCompare.Quantile(relative, 0.95), LitCompare.Quantile(relative, 0.99), LitCompare.Quantile(relative, 1), eb == 0 ? 1 : ea / eb);
     }
 
     private static void AssertWithinDoorLightTolerances(DoorLightCompare.Metric metric)
