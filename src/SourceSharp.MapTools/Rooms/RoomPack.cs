@@ -151,7 +151,7 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // every placement reads it (all its stored turns are in the one
         // section, 1 or 4, and the link takes the one it places). A room
         // compiled unlit gets none, so an unlit library packs as before.
-        IReadOnlyList<RoomPackSectionData> lighting = room.LightingOfCompile is { } baked ? [baked.ToSection()] : [];
+        IReadOnlyList<RoomPackSectionData> lighting = room.LightingOfCompile is { } baked ? [baked.ToSection(), .. baked.ParallaxSections()] : [];
 
         // And its door light, for a lit room whose library compile recorded
         // it (what leaves through each opening and what light entering one
@@ -987,6 +987,18 @@ public static class RoomPack
                 wanted.Add((name, doorLight));
             }
 
+            // The skybox parallax's parts (D36): a sky room's sun layer and
+            // the skybox's sun map, read with the lighting they belong to.
+            if (entry.Find(RoomSunLayer.SectionTag) is { } sunLayer)
+            {
+                wanted.Add((name, sunLayer));
+            }
+
+            if (entry.Find(RoomSunMap.SectionTag) is { } sunMap)
+            {
+                wanted.Add((name, sunMap));
+            }
+
             if (entry.Find(RoomAreaPortals.SectionTag) is { } areaPortals)
             {
                 wanted.Add((name, areaPortals));
@@ -1123,11 +1135,21 @@ public static class RoomPack
             RoomStaticProps? props = RoomStaticProps.Read(Section(name, RoomStaticProps.SectionTag), room.Definition, room.Bsp);
             RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
             RoomTransit? transit = RoomTransit.Read(Section(name, RoomTransit.SectionTag), name, room.Bsp);
+            // The detail props' lighting first (it replaces the payloads),
+            // then the skybox parallax (it keeps them): each wrapper copies
+            // what the other set.
             (RoomLighting? lighting, DetailDoor? detailDoor) = RoomDetailLighting.Read(
                 RoomLighting.Read(Section(name, RoomLighting.SectionTag), room.Definition, room.Bsp),
                 Section(name, RoomDetailLighting.SectionTag),
                 name,
                 room.Bsp);
+            RoomSunLayer? sunLayer = RoomSunLayer.Read(Section(name, RoomSunLayer.SectionTag), name, lighting);
+            RoomSunMap? sunMap = RoomSunMap.Read(Section(name, RoomSunMap.SectionTag), name);
+            if (lighting is not null && (sunLayer is not null || sunMap is not null))
+            {
+                lighting = lighting.WithParallax(sunLayer, sunMap);
+            }
+
             RoomDoorLight? doorLight = RoomDetailLighting.AttachDoor(
                 RoomDoorLight.Read(Section(name, RoomDoorLight.SectionTag), room.Definition, room.Bsp, lighting), detailDoor, name);
             RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
@@ -1716,6 +1738,8 @@ public static class RoomPack
         ((byte)'O', (byte)'V', (byte)'L', (byte)'Y') => RoomOverlays.SectionTag,
         ((byte)'L', (byte)'I', (byte)'T', (byte)'E') => RoomLighting.SectionTag,
         ((byte)'D', (byte)'L', (byte)'I', (byte)'T') => RoomDoorLight.SectionTag,
+        ((byte)'S', (byte)'U', (byte)'N', (byte)'L') => RoomSunLayer.SectionTag,
+        ((byte)'S', (byte)'U', (byte)'N', (byte)'M') => RoomSunMap.SectionTag,
         ((byte)'A', (byte)'P', (byte)'R', (byte)'T') => RoomAreaPortals.SectionTag,
         ((byte)'S', (byte)'H', (byte)'A', (byte)'P') => RoomShape.SectionTag,
         ((byte)'W', (byte)'A', (byte)'T', (byte)'R') => RoomWater.SectionTag,
