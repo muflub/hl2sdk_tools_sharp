@@ -303,4 +303,47 @@ public sealed class LevelLinkerMultiLibraryTests
             baseRooms.Get("hub").LightingOfCompile!.SkyLdr!.Select(l => l.Normal.X),
             caves.Get("hub").LightingOfCompile!.SkyLdr!.Select(l => l.Normal.X));
     }
+
+    /// <summary>
+    /// The flatten's own checks: one VMF per library; any library's skybox
+    /// is the link's to place; a library level's aliases are replaced by
+    /// the rooms they name, the VMF the same as the level spelt out.
+    /// </summary>
+    [Fact]
+    public void TheFlattenChecksItsLibraries()
+    {
+        VmfDocument baseVmf = Base(), cavesVmf = Caves();
+        Assert.Throws<ArgumentException>(() => LevelFlattener.FlattenLevel(Level("base.hub"), [baseVmf], new LevelFlattenOptions()));
+        Assert.Throws<ArgumentException>(() => LevelFlattener.FlattenLevel(RoomPropHarness.Level("hub"), [baseVmf, cavesVmf], new LevelFlattenOptions()));
+
+        VmfDocument skyA = RoomSkyboxHarness.Library(), skyB = RoomSkyboxHarness.Library();
+        LinkException refused = Assert.Throws<LinkException>(
+            () => LevelFlattener.FlattenLevel(Level("base.hub, caves.sky"), [skyA, skyB], new LevelFlattenOptions()));
+        Assert.Equal("level multi places the skybox room caves.sky at cell (1, 0); the link places the skybox below the grid itself.", refused.Message);
+
+        LevelGrid aliased = LevelYaml.Parse("library: rooms.vmf\naliases:\n  H: hub\nrows: 1\ncolumns: 2\ngrid:\n  - [H, other@90]\n", "props");
+        Assert.Equal(
+            LevelFlattener.Flatten(RoomPropHarness.Level("hub, other@90"), baseVmf).ToBytes(),
+            LevelFlattener.FlattenLevel(aliased, baseVmf, new LevelFlattenOptions()).Vmf.ToBytes());
+    }
+
+    /// <summary>
+    /// A level placing only the second library's rooms takes that library's
+    /// worldspawn but the first library's save counter, in the link and the
+    /// flatten alike.
+    /// </summary>
+    [Fact]
+    public async Task TheSaveCounterIsTheFirstLibrarysWhateverTheWorldspawn()
+    {
+        VmfDocument baseVmf = Base(), cavesVmf = Caves();
+        baseVmf.GetChunk(MapFileLoader.WorldChunk)!.AddKey("mapversion", "5");
+        cavesVmf.GetChunk(MapFileLoader.WorldChunk)!.AddKey("mapversion", "9");
+        LevelGrid level = Level("caves.hub, hall");
+        (LinkedLevel linked, _) = await LinkAsync(level, 1, await RoomPropHarness.CompileAsync(baseVmf), await RoomPropHarness.CompileAsync(cavesVmf));
+        Assert.Equal("5", World(linked.Bsp, "mapversion"));
+        VmfDocument flat = LevelFlattener.FlattenLevel(level, [baseVmf, cavesVmf], new LevelFlattenOptions()).Vmf;
+        Assert.Equal("5", flat.GetChunk(MapFileLoader.WorldChunk)!.GetValue("mapversion"));
+        VmfDocument first = LevelFlattener.FlattenLevel(Level("base.hub"), [baseVmf, cavesVmf], new LevelFlattenOptions()).Vmf;
+        Assert.Equal("5", first.GetChunk(MapFileLoader.WorldChunk)!.GetValue("mapversion"));
+    }
 }

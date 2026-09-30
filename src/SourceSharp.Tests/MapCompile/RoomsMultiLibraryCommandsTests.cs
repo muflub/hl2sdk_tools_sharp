@@ -135,6 +135,43 @@ public sealed class RoomsMultiLibraryCommandsTests
         Assert.Equal(Program.ExitUsage, exit);
         Assert.Contains("names one library; give -rooms once, with its pack.", text, StringComparison.Ordinal);
 
+        // ssmap rooms over a level: a -rooms that names no key, a pack per key, a level that does not read.
+        using (StringWriter list = new())
+        {
+            Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomsAsync(fs, [level, "-rooms", "/sample/rooms.roompack"], list));
+            Assert.Contains("-rooms \"/sample/rooms.roompack\" names no library of the level; write -rooms <key>=<pack>.", list.ToString(), StringComparison.Ordinal);
+        }
+
+        using (StringWriter list = new())
+        {
+            Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, [level, "-rooms", "caves=/sample/rooms.roompack"], list));
+        }
+
+        using (StringWriter list = new())
+        {
+            Assert.Equal(1, await RoomCommands.RunRoomsAsync(fs, ["/sample/levels/bare.yaml"], list));
+            Assert.Contains("the room \"cross\" is in libraries base and caves", list.ToString(), StringComparison.Ordinal);
+            fs.AddFile(Rooted("/sample/levels/broken.yaml"), "rows: [\n"u8.ToArray());
+            Assert.Equal(1, await RoomCommands.RunRoomsAsync(fs, ["/sample/levels/broken.yaml"], list));
+        }
+
+        // A pack that is not a pack, and a pack naming a skybox it does not hold.
+        byte[] caves0 = fs.GetBytes(VPath.Create(Rooted("/sample/caves.roompack")))!;
+        fs.AddFile(Rooted("/sample/caves.roompack"), "not a pack"u8.ToArray());
+        (exit, text) = await LinkAsync(fs, level);
+        Assert.Equal(1, exit);
+        Assert.Contains("ssmap link: /sample/caves.roompack: ", text, StringComparison.Ordinal);
+        using (MemoryStream skyless = new())
+        {
+            await RoomPack.SaveAsync([RoomLibrarySkybox.ToSection("nosuch")], [await RoomPackItem.CreateAsync(await CrossAsync())], skyless, CancellationToken.None);
+            fs.AddFile(Rooted("/sample/caves.roompack"), skyless.ToArray());
+        }
+
+        (exit, text) = await LinkAsync(fs, level);
+        Assert.Equal(1, exit);
+        Assert.Contains("names skybox room \"nosuch\" but does not hold it", text, StringComparison.Ordinal);
+        fs.AddFile(Rooted("/sample/caves.roompack"), caves0);
+
         // A later library with its own sun: warned by link, flatten and ssmap rooms alike.
         string caves = Encoding.UTF8.GetString(fs.GetBytes(VPath.Create(Rooted("/sample/caves.vmf")))!);
         fs.AddFile(
@@ -168,18 +205,13 @@ public sealed class RoomsMultiLibraryCommandsTests
         InMemoryFileSystem fs = await PackedAsync();
 
         // caves: one cross on a half-size grid (its kit walkable there), packed as ssmap room packs it.
-        RoomDefinition cross = new(
-            "cross", 128, new SocketKit(64, 96, 16),
-            [.. new[] { RoomFacing.PositiveX, RoomFacing.NegativeX, RoomFacing.PositiveY, RoomFacing.NegativeY }
-                .Select(f => new RoomSocket(f, RoomLibraryVmf.WallName(f)))]);
-        RoomObject compiled = await RoomCompiler.CompileAsync(RoomHarness.BuildRoomModel(cross), cross, await RoomHarness.ContextAsync());
         using (MemoryStream pack = new())
         {
-            await RoomPack.SaveAsync([await RoomPackItem.CreateAsync(compiled)], pack);
+            await RoomPack.SaveAsync([await RoomPackItem.CreateAsync(await CrossAsync())], pack);
             fs.AddFile(Rooted("/sample/caves.roompack"), pack.ToArray());
         }
 
-        fs.AddFile(Rooted("/sample/caves.vmf"), RoomHarness.LibraryVmf(cross).ToBytes());
+        fs.AddFile(Rooted("/sample/caves.vmf"), RoomHarness.LibraryVmf(HalfCross).ToBytes());
 
         string message = "libraries base (../rooms.vmf) and caves (../caves.vmf) are built for different grids: cell_size 256 against 128; the rooms of a level share one cell size.";
         string level = "/sample/levels/multi.yaml";
@@ -193,6 +225,16 @@ public sealed class RoomsMultiLibraryCommandsTests
         Assert.Equal(1, await RoomCommands.RunRoomsAsync(fs, [level], listing));
         Assert.Contains(message, listing.ToString(), StringComparison.Ordinal);
     }
+
+    /// <summary>A cross on a half-size grid, its kit walkable there.</summary>
+    private static RoomDefinition HalfCross => new(
+        "cross", 128, new SocketKit(64, 96, 16),
+        [.. new[] { RoomFacing.PositiveX, RoomFacing.NegativeX, RoomFacing.PositiveY, RoomFacing.NegativeY }
+            .Select(f => new RoomSocket(f, RoomLibraryVmf.WallName(f)))]);
+
+    /// <summary>The half-size cross compiled as <c>ssmap room</c> compiles a room.</summary>
+    private static async Task<RoomObject> CrossAsync() =>
+        await RoomCompiler.CompileAsync(RoomHarness.BuildRoomModel(HalfCross), HalfCross, await RoomHarness.ContextAsync());
 
     private static async Task<(int Exit, string Text)> LinkAsync(InMemoryFileSystem fs, string level, params string[] extra)
     {
