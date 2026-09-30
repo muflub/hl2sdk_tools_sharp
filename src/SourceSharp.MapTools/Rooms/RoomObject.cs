@@ -236,6 +236,24 @@ public sealed record RoomObject(
     internal RoomOverlays? OverlaysOfCompile => Overlays is { } overlays && overlays.IsFor(this) ? overlays : null;
 
     /// <summary>
+    /// The room's displacements as the link carries them (<see cref="RoomDisplacements"/>:
+    /// every start position and vertex vector at each quarter turn), or
+    /// null: made by the room compile for a room whose compile wrote
+    /// displacements, and stored by the pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Overlays"/>, not only a shortcut: it is what says the
+    /// room was held to the pack's displacement rules when it was compiled,
+    /// so a room whose lumps have displacements and none of this bound to
+    /// its compile (<see cref="DisplacementsOfCompile"/>) is refused by the
+    /// link, naming the room.
+    /// </remarks>
+    internal RoomDisplacements? Displacements { get; init; }
+
+    /// <summary>The room's displacements while they describe this compile, else null.</summary>
+    internal RoomDisplacements? DisplacementsOfCompile => Displacements is { } displacements && displacements.IsFor(this) ? displacements : null;
+
+    /// <summary>
     /// The room's areas and area portals as the link carries them
     /// (<see cref="RoomAreaPortals"/>: the lumps checked, the clip vertices
     /// at each quarter turn, the portal numbers), or null: made by the room

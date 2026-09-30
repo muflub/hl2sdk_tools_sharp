@@ -162,6 +162,9 @@ public static class BspRuleCatalog
 
         new(BspRuleCodes.TooManyCubemaps, DiagnosticSeverity.Warning,
             "a map should carry at most MAX_MAP_CUBEMAPSAMPLES cubemap samples"),
+
+        new(BspRuleCodes.TooManyDisplacements, DiagnosticSeverity.Warning,
+            "a map should carry at most MAX_MAP_DISPINFO displacements"),
     ];
 
     /// <summary>The rule a code names.</summary>

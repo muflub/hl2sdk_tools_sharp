@@ -141,14 +141,14 @@ adds a section does.
 In the order it checks:
 
 1. any non-empty lump outside `LevelLinker.CarriedLumps`. Not in the set:
-   `WorldLights(Hdr)`, `DispInfo`, `DispVerts`, `DispTris`,
-   `DispLightmapAlphas`, `DispLightmapSamplePositions`,
+   `WorldLights(Hdr)`,
    `LeafAmbientIndex(Hdr)`,
    `LeafAmbientLighting(Hdr)`, `LightingHdr`, `FacesHdr` (`Cubemaps` left
    the list with PR 12, `ClipPortalVerts` with PR 13, `LeafWaterData` and
-   `WaterOverlays` with PR 14; since PR 11
+   `WaterOverlays` with PR 14, the five displacement lumps with PR 15; since PR 11
    `Overlays` and `OverlayFades` are carried, and a room with overlays is
-   refused only when it carries no overlay data from its compile);
+   refused only when it carries no overlay data from its compile, as since
+   PR 15 a room with displacements is);
 2. more than one model, or a world model whose head node is not 0 (since
    PR 7 brush models are carried, and a room with them is refused only when
    it carries no brush model data from its compile);
@@ -163,7 +163,10 @@ In the order it checks:
    detail props; since PR 6 static props are carried, and a static prop lump
    with content is refused only when the room carries no static prop data
    from its compile);
-6. displacement collision (`RefuseDisplacementCollision`);
+6. displacement collision (`RefuseDisplacementCollision`; since PR 15
+   the collision is carried with its displacements, and only a collision
+   lump for displacements the room does not have is refused,
+   `RoomDisplacementsOf`);
 7. and, in `LinkAsync`, a pak holding any file (`RefusePackedFilesAsync`;
    since PR 5 the files are carried and only a pak that is not a zip is
    refused, `ReadPakAsync`).
@@ -272,7 +275,7 @@ or research).
 | `func_ladder` | silently wrong (`info_ladder` bounds) | bounds per rotation | none | 1 (`info_ladder`) | S |
 | Static props | carried since PR 6 (moved, filtered, dictionaries merged, leaves recomputed, `.vhv` renamed) | props per rotation, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
 | Detail props | refused (game lump) | props per rotation, leaf-local runs; lighting ×1, or ×4 if sunlit | renumber leaves, re-sort, merge dictionaries | 0 | M |
-| Displacements | refused at split (`VmfPlacement.MoveSide`) | lumps and collision per rotation, sample positions | rebase; cross-room neighbours only if allowed | 0 | L |
+| Displacements | carried since PR 15 (moved and turned, runs, faces and neighbours rebased, collision hulls and lighting the room's; no stitching across a joint, which is refused) | starts and vertex vectors per rotation | rebase; cross-room neighbours only if allowed | 0 | L |
 | Water | carried since PR 14 (records merged, leaf and face ids renumbered, fluids moved into the collision, water overlays carried, vvis's water passes run over the level; water touching a door plug refused) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
 | Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays since PR 14) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
 | Decals (`infodecal`) | carried | nothing | nothing | 1 each (**uncertain** after spawn) | S |
@@ -547,8 +550,9 @@ displacement face's `DFace.DispInfo`. Neighbours come from
 `Disp/DispNeighbourFinder`; normals are smoothed across neighbours
 (`Disp/DispNormalSmoother`). vrad lights the surface (`Rad/Displacement/`).
 
-**Today.** Refused at the split: `VmfPlacement.MoveSide` throws on a
-`dispinfo` chunk; also by lump and by `RefuseDisplacementCollision`.
+**Today.** Carried since PR 15 (section 13, its landed note). Before it,
+refused at the split (`VmfPlacement.MoveSide` threw on a `dispinfo`
+chunk), by lump and by `RefuseDisplacementCollision`.
 
 **Pack vs link.** Per rotation: all displacement lumps and collision, moved. At link:
 rebase `DispInfo` indices (vertex, triangle, alpha and sample-position
@@ -2244,7 +2248,7 @@ Source SDK 2013 values not yet in this repo's tables (`BspLimits.Caps`,
 | Names | resolved value length | 1023 bytes (5.6), **uncertain** engine cap |
 | Static props | props, dictionary, leaf-list entries | `ushort` fields (65,535) |
 | Detail props | props; `dplt` entries | 65,535 (`DetailPropEmitter.MaxDetailProps`) |
-| Displacements | dispinfos; disp verts; disp tris | 2048 dispinfos (SDK); `DFace.DispInfo` `short` |
+| Displacements | dispinfos; disp verts; disp tris | 2048 dispinfos (SDK; `WriteLimits.MaxMapDispInfo` and BSP0040 since PR 15); `DFace.DispInfo` `short` |
 | Water | leaf water data; water texinfos | 32,768 (`WriteLimits.MaxMapLeafWaterData`) |
 | Overlays | overlays; water overlays | 512; 16,384 (`MapOverlay`) |
 | Cubemaps | samples; patched texdata and texinfo | 1024 samples (SDK; `WriteLimits.MaxMapCubemapSamples` and BSP0039 since PR 12); texdata 2048, texinfo 12,288 |
@@ -4356,6 +4360,189 @@ each level links without a warning, to a map `ssmap check` passes with its
 one warning (no cubemap sample) and a version 3 `.nav3d`, and flattens; the
 same seed gives the same file every run.
 
+**PR 15 landed** (displacements, no cross-room stitching). The split and
+the flatten move a displacement with its side (`VmfPlacement.MoveSolid`):
+its `startposition` through the whole move, its `normals`, `offsets` and
+`offset_normals` turned as directions, every other key and row (distances,
+alphas, triangle tags, allowed vertices, power, flags) as written; the
+turned numbers are exact and written in their shortest round-trip spelling,
+so the flattened level's vbsp reads back the room's floats. `ssmap room`
+describes a room whose compile wrote displacements in one `DISP` section
+(`RoomDisplacements`, with the 1.1 framing: codec byte, decoded length,
+revision; codec none): the displacement and vertex counts, then the
+rotation count (4) and per turn every displacement's start position and
+every vertex's vector turned (not moved). The five displacement lumps and
+the collision lump stay in the room's container byte for byte and are
+checked against what vbsp writes (runs in order, each base face naming its
+displacement back, power 2 to 4, sample positions inside their lump, one
+collision entry per displacement). A room without displacements gets no
+section, so a library without them packs to the same bytes. The link
+carries `DispInfo`, `DispVerts`, `DispTris`, `DispLightmapAlphas` and
+`DispLightmapSamplePositions` (`LevelLinker.LinkDisplacements`): every
+placement's displacements in link order, placement *p*'s displacement *k*
+numbered `DispBase + k` (vbsp numbers a map's displacements in the order
+their sides load, and the flatten writes the placements' brushes in link
+order), its start the stored turn plus the placement's translation added as
+one vector, zeros unsigned, exactly as the flatten moves `startposition`
+(vbsp writes the start it read), its vertex and triangle runs, alpha and
+sample-position starts rebased, its base face the face the link wrote for
+it, and every edge and corner neighbour it has rebased by the placement's
+first displacement (a missing edge neighbour stays missing, a corner's
+unused slots are the room's); its vertices take the stored turn's vectors
+with the room's distances and alphas; the triangle tags, alphas and sample
+positions are the room's bytes. Each face's `DispInfo` is rebased by the
+same base. `PhysDisp` is every placement's entries in the same order, each
+the room's bytes: an entry is the packed bounding hull of the
+displacement's collision mesh, which names the displacement's own vertices
+by index and holds no position, so it is the same at every turn and cell,
+and the world collision keeps its `virtualterrain` block. A level whose
+rooms have no displacements carries none of the lumps and the empty
+collision lump as before, so no linked map without displacements moved.
+The pack format version is unchanged (4, or PR 19's 5 for a pack holding
+a shaped room): `DISP` is a tag an older build skips, and that build
+refuses a room with displacements by its lumps (and could not
+split a library holding one); a pack written before this PR has no `DISP`,
+and this build refuses a room with displacements and no section with `room
+{room} has {k} displacements but no displacement data from its compile (a
+pack written before the link carried displacements, or a room built
+without ssmap room); recompile the library with ssmap room.`, which also
+guarantees every linked displacement was held to the rules below when its
+room was packed. The old refusals, by lump and `RefuseDisplacementCollision`,
+are gone (a fact asserts the lump is no longer named); a room carrying
+collision entries without displacements is refused with `room {room}
+carries displacement collision for {k} displacements but has none.`
+Displacements cost no entity: a level's entity lump and budget are those
+of the same level without them (a fact).
+
+- **Lighting (9.4).** A displacement's lightmap is a face lightmap, so
+  PR 9's base bake already stores it with the other faces, per stored turn,
+  and the link lays it over the room's compile as it does every face's. A
+  displacement's luxels are not on its base face's plane, though: vrad
+  spreads them over the displaced surface. The door light's receivers
+  (PR 10) were laid on the plane, so a displacement took no light through a
+  door; its cells now stand on the surface, each with the surface's blended
+  normal there and, on a bumped face, bump normals built on it
+  (`DoorFaceCells.OnSurface`, the surface built from the room's lumps as
+  vrad builds it, pushed one unit off as vrad pushes a displacement's
+  luxels), at pack time and at link alike. No section changed: the
+  receivers are recomputed from the room's lumps on both sides, and no
+  earlier pack holds a displacement.
+- **The plug (O8 as recommended, 15.4).** Refused by the split, so by the
+  pack and the flatten, and by a room compile given a VMF, with 15.4's
+  text: a boundary edge of the displaced surface (built as vbsp builds it,
+  from the side's face cut from its brush's planes in doubles) reaching
+  into a socket's plug box past its inner face by more than the cell
+  tolerance, inside the opening's span. An edge on the inner face, where a
+  floor meets the doorway, two wall depths from the neighbour's, is
+  carried, and links with no neighbour across the joint (a fact); the
+  doorway's floor stays a brush.
+- **Refusals the table does not list,** each by the split, the flatten and
+  a room compile, each held by a fact: `room {room}: the displacement on
+  brush side {side} is on socket "{socket}"'s plug, which a joint
+  removes.` (a displacement on a side of a brush whose box is a plug box,
+  the rule the flatten leaves joined plugs out by: a joint strips the
+  plug's faces and the flatten drops the brush); `room {room}: the
+  displacement on brush side {side} reaches {d} units outside the cell;
+  displacements stay in their cell.` (the displaced vertices held to the
+  room's box as a prop's hull is, O6, since a surface can stand off its
+  brush, which the model lint holds to the box); and `room {room}: the
+  displacement on brush side {side} is power 4; the link carries
+  displacement collision only as the virtual mesh vbsp builds for powers 2
+  and 3.` (vbsp gives up the virtual mesh for every displacement of a map
+  holding one of power 4 and puts their collision among the world's
+  solids as triangle soup, which the link does not merge, and one such room
+  would move every displacement of the flattened level to that path). A
+  room compiled with `-novirtualmesh` is refused at link by the world
+  collision's existing text (a `staticmesh` block).
+- **Limits.** `MAX_MAP_DISPINFO` joins `WriteLimits` (2048, the SDK
+  vbsp's load cap; later branches' `-maxdispinfo` raises it) and the
+  capacity check refuses past it with `room {room} at cell ({x}, {y})
+  pushes the link to {n} displacements; a map holds at most 2048
+  (MAX_MAP_DISPINFO).`; `ssmap check` reports a map past it as a warning
+  (BSP0040), as it does cubemap samples (BSP0039), since whether the
+  engine reads more is not settled here. The fields that index
+  displacements (a face's `short`, a neighbour's `ushort`, a record's
+  `ushort` base face under the link's 65,536 faces) are wider.
+
+Measured equivalence (the harness hub with two patches sharing an edge, so
+vbsp makes them neighbours, beside another room with a power 3 patch,
+heights and sideways offsets varying over each grid; `LevelLinkerDisplacementTests`):
+at every quarter turn, and in a 3 x 2 level of mixed turns with the hub
+placed three times, the linked and flattened maps carry the same
+displacements in the same order with the same start positions bit for bit,
+the same power, flags, contents, allowed vertices, neighbours (index,
+orientation, span), distances, alphas, triangle tags, sample positions,
+base-face material and lightmap size, and the same surfaces built from
+their lumps: every vertex and normal bit for bit (measured gap 0, the facts
+hold 1e-3 and 1e-5). The collision hulls are the same convex hulls, with
+the same corners; the flattened compile cooks each anew from vertices a
+move rounds differently, so where coplanar corners allow it the triangles
+are cut differently and the bytes differ (at turn 0 an unmoved room's are
+the same bytes). Rooms compiled without a cooker link their displacements
+with no collision, as the flattened compile writes none. The linked map
+passes `ssmap check`. Lighting (`LevelLinkerDisplacementLightingTests`,
+the hub with a lamp and the other room with a sky ceiling under the sun,
+each with its patches): a room alone, every socket capped, links to vrad of
+its own link and to the full compile of its flattened level (vbsp, vvis,
+vrad) with every displacement luxel the same bytes, at every quarter turn
+(108 in the hub, 56 in the other room), and every other face's the same as
+vrad of the link. Two rooms jointed against vrad of the link: the level
+within PR 10's tolerances (near p95 0.070 and 0.030, elsewhere 0.077 and
+0.047, energy 0.996 and 0.998 at turns 0 and 90); the displacement luxels
+p95 0.106 and 0.149, energy 0.994 and 0.991, where the base alone is p95
+0.42 and 0.43 and the door light laid on the base face's plane, before this
+PR, reached none of them (level near p95 0.285 at turn 0). Packs and links
+of rooms with displacements are the same bytes at one thread and four, and
+a count of 1 (turn 0 stored, the link turning it) links to the same bytes.
+
+Storage is four turns, the 1.1 default for data the link would turn
+element by element: measured on a 16 x 16 level of the two harness rooms
+at mixed turns (384 displacements) on a busy 4-core machine, the minimum of
+fifteen warm links is 48 to 68 ms with either storage, the same within the
+noise, and 45 to 62 ms for the same level without displacements; a count
+of 1 is read and linked to the same bytes (a fact).
+
+Measured against main (the merge base, with PR 14, PR 19, the skybox bake,
+the empty-room refusal and PR 21), the whole
+`ssmap` process on a busy 4-core machine: `ssmap vbsp` on 2fort (as
+`c.vmf`) gives `a491f59df3b484dc`, vrad on 2fort's vis'd map the same
+bytes at 4 threads and 1 (`13dd86de1bde7eb2`), and `ssmap all` on 2fort and
+the sandbox writes the same maps; the 3x3, transit and stress packs
+(unlit and lit) differ only in the build identity (`CMPL` and each room
+container), no room of them gaining a `DISP` section; every level of the
+3x3 and transit samples (both modes for transit), linked by this build from
+main's packs, is main's map and `.nav3d` byte for byte, and so is the
+stress library's 33 x 33 level, unlit and lit (linked from this build's own
+packs too), each passing `ssmap check` with its one warning (no cubemap
+sample); the 33 x 33 level links in the same time within the noise (unlit
+1.7 to 1.9 s against 1.7 to 2.2 s, lit 3.5 to 3.6 s against 3.7 to 4.4 s,
+three runs each, not interleaved). Through the CLI (`ssmap room` lighting
+as it does by default, `ssmap link` from the pack alone, `ssmap check`,
+`--flatten` compiled whole) a level of the patched rooms at mixed turns
+links clean and matches its flatten as the facts above do, and `ssmap
+room` refuses a patch reaching into a doorway with 15.4's text.
+
+Decisions taken where this document is open, or where it left a detail:
+storage and the known difference above; O8 as recommended; power 4
+refused rather than carried (above); the lightmap alphas lump, which vbsp
+leaves empty, carried and rebased anyway, so a room from another compiler
+that fills it links; a displacement's own `uaxis` and `vaxis` keys, which
+vbsp reads and nothing uses, carried as written. Not done here: the 3x3
+sample's `corner` room did not grow its patch (as PRs 6 to 13 left the
+sample alone: the harness levels carry the end-to-end facts at every
+rotation, and the sample's unchanged digests show a level without
+displacements links as before); the stress library has none; `ssmap rooms`
+does not list displacements; and whether the engine builds a displacement's
+collision from a hull another compile cut differently, as the facts
+expect from the virtual mesh's format, belongs to the 15.8 checklist.
+With PR 19 (room heights, merged before this landed) the cell rule reads
+the room's box, the cell in x and y and the room's height in z (a fact
+holds a patch above a cube's ceiling refused in a cube room and carried in
+a tall one); `DISP` is an optional tag, independent of the version 5 PR 19
+gives a pack holding a shaped room, so a pack of cube rooms with
+displacements stays at version 4. With PR 14 (water) both sections sit
+side by side, `WATR` before `DISP`, and a room may hold both.
+
 **PR 22 landed** (the level map overlay, section 18). `ssmap room` stores
 each room's part of its level's map in an optional **`MAPV`** section
 (`RoomMapView`, the link sections' framing, codec none, revision 1, no pack
@@ -5616,7 +5803,8 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
 - **Combined packs: no version change.** The pack layout is `RoomPack`'s,
   version 4 (PR 4 raised it to 2, PR 5 to 3 and Q3 to 4 with `DVIS`; the
   `PROP`, `BMOD`, `TRAN`, `CUBE`, `OVLY`, `LITE`, `APRT` and `SKYB`
-  sections of PRs 6 to 13 are optional tags an older build skips). New
+  sections of PRs 6 to 13, and PR 15's `DISP`, are optional tags an older
+  build skips). New
   library section **`NSPC`**, an optional known tag in the same way (no
   version bump; PR 10's door-light sections are added the same way on their
   own branch), with the 1.1 framing: per namespace in order, its key, the

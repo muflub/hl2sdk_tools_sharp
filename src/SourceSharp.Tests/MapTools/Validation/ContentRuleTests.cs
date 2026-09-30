@@ -125,6 +125,30 @@ public class ContentRuleTests
             Assert.Single(report.ForCode(BspRuleCodes.TooManyCubemaps)).Message);
     }
 
+    [Corrupts(BspRuleCodes.TooManyDisplacements)]
+    public async Task AMapWithMoreDisplacementsThanVbspLoadsIsReported()
+    {
+        // 2049 displacements of power 2, all on one run of vertices and
+        // triangles: one past what the SDK's vbsp loads. 2048 is still quiet.
+        BspData bsp = await Corrupted.GoldenAsync();
+        DispInfo record = default;
+        record.Power = 2;
+        byte[] one = System.Runtime.InteropServices.MemoryMarshal.AsBytes(new[] { record }.AsSpan()).ToArray();
+        Corrupted.Replace(bsp, BspLump.DispVerts, new byte[25 * 20], 0);
+        Corrupted.Replace(bsp, BspLump.DispTris, new byte[32 * 2], 0);
+        Corrupted.Replace(bsp, BspLump.DispInfo, [.. Enumerable.Repeat(one, 2048).SelectMany(b => b)], 0);
+        Assert.True((await Corrupted.CheckAsync(bsp)).ForCode(BspRuleCodes.TooManyDisplacements).IsEmpty);
+
+        Corrupted.Replace(bsp, BspLump.DispInfo, [.. Enumerable.Repeat(one, 2049).SelectMany(b => b)], 0);
+        ValidationReport report = await Corrupted.CheckAsync(bsp);
+
+        Corrupted.OnlyFires(report, BspRuleCodes.TooManyDisplacements);
+        Severity.Is(report, BspRuleCodes.TooManyDisplacements, DiagnosticSeverity.Warning);
+        Assert.Equal(
+            "the map has 2049 displacements, more than the 2048 (MAX_MAP_DISPINFO) the SDK's vbsp loads",
+            Assert.Single(report.ForCode(BspRuleCodes.TooManyDisplacements)).Message);
+    }
+
     [Corrupts(BspRuleCodes.PhysFraming)]
     public async Task APhysicsRecordWhoseSolidsDoNotAddUpIsReported()
     {

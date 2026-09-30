@@ -785,8 +785,18 @@ portal, as vbsp does. A library whose worldspawn sets
 `rooms_door_portals 1` gets an area portal in every joint too, following
 the joint's kept socket door when it is a named `func_door`, else open;
 each costs an entity and every room becomes its own area (a map holds 255).
+Displacements are carried: each placed room's are moved and turned with it
+(the start position moved, every vertex's vector turned), numbered after
+the rooms before it in link order, standing on the faces the link wrote for
+them, with their neighbours, collision hulls and lighting their room's; they
+cost no entity. They are never stitched across a joint: the split, and so
+`ssmap room` and `--flatten`, refuses a displacement with an edge reaching
+into a socket's plug box (the doorway's floor stays a brush; running up to
+the doorway is fine), one whose surface leaves its cell, and one of power 4,
+whose collision vbsp builds another way. A map holds at most 2048
+displacements (`MAX_MAP_DISPINFO`), and the link refuses a level past that.
 The link refuses what it cannot carry: detail props,
-displacements, water (and its water overlays), and a mix of cooked and
+water (and its water overlays), and a mix of cooked and
 `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a
 gap unless something placed in the socket (a door frame model, say) covers

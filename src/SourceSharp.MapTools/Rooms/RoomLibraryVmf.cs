@@ -425,6 +425,15 @@ public static class RoomLibraryVmf
                 throw new RoomLibraryException(portalProblem);
             }
 
+            // A displacement the link cannot carry as the flattened level
+            // compiles it (the rooms design, 4.5): power 4, out of the cell,
+            // or reaching into a doorway. Refused here too, so the pack and
+            // the flatten refuse it alike.
+            if (RoomDisplacements.Problem(definition, document) is { } displacementProblem)
+            {
+                throw new RoomLibraryException(displacementProblem);
+            }
+
             if (i == skyboxIndex)
             {
                 CheckSkybox(definition, owned[i]);
