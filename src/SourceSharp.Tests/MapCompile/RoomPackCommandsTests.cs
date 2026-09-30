@@ -190,6 +190,330 @@ public sealed class RoomPackCommandsTests
         Assert.Equal(packId.ToString("D"), EntityLump.Parse(withIds[BspLump.Entities])[0].Get(RoomCompileIds.PackIdKey));
     }
 
+    // ---- rebuilding one library -------------------------------------------------
+
+    /// <summary>
+    /// <c>-only</c> compiles the named libraries and copies every other one
+    /// from the existing pack: the pack is the one a full build writes, the
+    /// copied rooms' sections are the old pack's bytes, and the log names
+    /// what was copied. A copied library whose VMF changed, or that was
+    /// compiled under other singletons of the first library, is refused; so
+    /// are a key that is not given, a pack that is not there, and a pack
+    /// without the library.
+    /// </summary>
+    [Fact]
+    public async Task OnlyRebuildsTheNamedLibrariesAndCopiesTheRest()
+    {
+        InMemoryFileSystem fs = Game();
+        string[] both = ["base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf", "-nolight"];
+        string pack = Path.GetFullPath("/packs/both.roompack");
+        Assert.Equal(Program.ExitSuccess, (await PackAsync(fs, ["-out", "/packs/both.roompack", .. both])).Exit);
+        byte[] before = Bytes(fs, "/packs/both.roompack");
+
+        // caves changed: rebuilt alone, base copied.
+        fs.AddFile(Rooted("/game/maps/caves.vmf"), WithEntity(Caves(), 1, RoomLightHarness.Light(920, new Vec3(60, 60, 60))).ToBytes());
+        (int exit, string log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "caves", .. both]);
+        Assert.True(exit == Program.ExitSuccess, log);
+        Assert.Contains($"ssmap roompack: library base: copied 2 room(s) from {pack}", log, StringComparison.Ordinal);
+        Assert.Contains("ssmap roompack: compiled caves.other (", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("compiled base.", log, StringComparison.Ordinal);
+        Assert.Contains($"ssmap roompack: wrote {pack} (4 of 4 room(s))", log, StringComparison.Ordinal);
+        byte[] only = Bytes(fs, "/packs/both.roompack");
+        Assert.Equal(Program.ExitSuccess, (await PackAsync(fs, ["-out", "/packs/full.roompack", .. both])).Exit);
+        Assert.Equal(Bytes(fs, "/packs/full.roompack"), only);
+        Assert.Equal(await SectionsAsync(before, 0, 2), await SectionsAsync(only, 0, 2));
+        Assert.NotEqual(await SectionsAsync(before, 2, 2), await SectionsAsync(only, 2, 2));
+
+        // base's rooms changed (not its singletons): -only caves refuses it;
+        // -only base rebuilds it and copies caves.
+        VmfDocument edited = WithEntity(Base(), 0, RoomPropHarness.Entity("info_target", 830, new Vec3(40, 40, 40), ("targetname", "spot")));
+        fs.AddFile(Rooted("/game/maps/base.vmf"), edited.ToBytes());
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "caves", .. both]);
+        Assert.Equal(1, exit);
+        Assert.Contains($"ssmap roompack: library base changed since {pack} was built (its VMF); rebuild it too, or leave out -only.", log, StringComparison.Ordinal);
+        Assert.Equal(only, Bytes(fs, "/packs/both.roompack"));
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "base", .. both]);
+        Assert.True(exit == Program.ExitSuccess, log);
+        Assert.Contains($"ssmap roompack: library caves: copied 2 room(s) from {pack}", log, StringComparison.Ordinal);
+        Assert.Equal(Program.ExitSuccess, (await PackAsync(fs, ["-out", "/packs/full.roompack", .. both])).Exit);
+        Assert.Equal(Bytes(fs, "/packs/full.roompack"), Bytes(fs, "/packs/both.roompack"));
+
+        // base's worldspawn changed: every caves room was compiled under the
+        // old one, so -only base refuses to copy them.
+        edited.GetChunk("world")!.AddKey("detailmaterial", "detail/other");
+        fs.AddFile(Rooted("/game/maps/base.vmf"), edited.ToBytes());
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "base", .. both]);
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            $"ssmap roompack: library caves changed since {pack} was built (the first library's singletons); rebuild it too, or leave out -only.",
+            log,
+            StringComparison.Ordinal);
+
+        // -only names a library that is not given; there is no pack; the pack has no such library.
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "base,halls", .. both]);
+        Assert.Equal(Program.ExitUsage, exit);
+        Assert.Contains("ssmap roompack: -only names halls, which is not one of base and caves.", log, StringComparison.Ordinal);
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/none.roompack", "-only", "base", .. both]);
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            $"ssmap roompack: -only copies the other libraries from {Path.GetFullPath("/packs/none.roompack")}, and there is none; build it once without -only.",
+            log,
+            StringComparison.Ordinal);
+        Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs, ["/game/maps/caves.vmf", "-nolight", "-out", "/packs/plain.roompack"])).Exit);
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/plain.roompack", "-only", "base", .. both]);
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            $"ssmap roompack: {Path.GetFullPath("/packs/plain.roompack")} holds no library caves; rebuild it too, or leave out -only.",
+            log,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>-incremental</c> sends every room of every library through the
+    /// room cache: a second run reuses all four; an edit to one room of one
+    /// library compiles that room alone; an edit to the first library's
+    /// worldspawn compiles every room, the later library's too, since each
+    /// carries it. Each pack is the one a clean build writes.
+    /// </summary>
+    [Fact]
+    public async Task IncrementalRebuildsOnlyWhatChangedInOneLibrary()
+    {
+        using TempTree tree = new();
+        InMemoryFileSystem fs = Game();
+        string[] both = ["base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf", "-nolight"];
+        async Task Check(string counts)
+        {
+            (int exit, string log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-incremental", "-cache-dir", tree.Root, .. both]);
+            Assert.True(exit == Program.ExitSuccess, log);
+            Assert.Contains("ssmap roompack: " + counts, log, StringComparison.Ordinal);
+            Assert.Equal(Program.ExitSuccess, (await PackAsync(fs, ["-out", "/packs/clean.roompack", .. both])).Exit);
+            Assert.Equal(Bytes(fs, "/packs/clean.roompack"), Bytes(fs, "/packs/both.roompack"));
+        }
+
+        await Check("4 compiled, 0 reused");
+        Assert.True(File.Exists(Path.Combine(tree.Root, "both.sscache.db")));
+        await Check("0 compiled, 4 reused");
+        fs.AddFile(Rooted("/game/maps/caves.vmf"), WithEntity(Caves(), 1, RoomLightHarness.Light(920, new Vec3(60, 60, 60))).ToBytes());
+        await Check("1 compiled, 3 reused");
+        VmfDocument based = Base();
+        based.GetChunk("world")!.AddKey("detailmaterial", "detail/other");
+        fs.AddFile(Rooted("/game/maps/base.vmf"), based.ToBytes());
+        await Check("4 compiled, 0 reused");
+    }
+
+    // ---- messages -------------------------------------------------------------
+
+    /// <summary>
+    /// What <c>ssmap roompack</c> and <c>ssmap room -namespace</c> refuse,
+    /// each by its text: the usage, a key given twice (ignoring case), a
+    /// bare path whose stem is not a key, a namespace that is not a key, a
+    /// library that does not split (named by its path), and two libraries on
+    /// different grids (named by the paths the pack records). A bare path
+    /// whose stem is a key takes it.
+    /// </summary>
+    [Fact]
+    public async Task TheVerbRefusesEachCaseWithItsText()
+    {
+        InMemoryFileSystem fs = Game();
+        (int exit, string log) = await PackAsync(fs, ["base=/game/maps/base.vmf"]);
+        Assert.Equal(Program.ExitUsage, exit);
+        Assert.StartsWith("usage: ssmap roompack -out <pack.roompack> <key>=<library.vmf>", log, StringComparison.Ordinal);
+        (exit, _) = await PackAsync(fs, ["-out", "/packs/x.roompack"]);
+        Assert.Equal(Program.ExitUsage, exit);
+        (exit, _) = await PackAsync(fs, ["-level", "/game/levels/multi.yaml", "base=/game/maps/base.vmf"]);
+        Assert.Equal(Program.ExitUsage, exit);
+
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/x.roompack", "base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf", "Base=/game/maps/caves.vmf"]);
+        Assert.Equal(Program.ExitUsage, exit);
+        Assert.Contains("ssmap roompack: the key Base is given twice.", log, StringComparison.Ordinal);
+
+        string stemless = Path.GetFullPath("/game/maps/3x3.vmf");
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/x.roompack", stemless]);
+        Assert.Equal(Program.ExitUsage, exit);
+        Assert.Contains($"ssmap roompack: {stemless} gives no key (3x3 is not a key); write key={stemless}.", log, StringComparison.Ordinal);
+
+        (exit, log) = await RoomAsync(fs, ["/game/maps/base.vmf", "-namespace", "3x3"]);
+        Assert.Equal(Program.ExitUsage, exit);
+        Assert.Contains(
+            "ssmap room: -namespace \"3x3\" is not a key; a key starts with a letter and holds only letters, digits, '_' and '-'.",
+            log,
+            StringComparison.Ordinal);
+
+        // A bare path whose stem is a key: that key.
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/bare.roompack", "-nolight", Path.GetFullPath("/game/maps/base.vmf")]);
+        Assert.True(exit == Program.ExitSuccess, log);
+        Assert.Contains("ssmap roompack: compiled base.hub (", log, StringComparison.Ordinal);
+
+        // A library that does not split, named by its path, before any room compiles.
+        fs.AddFile(Rooted("/game/maps/caves.vmf"), new VmfDocument { Chunks = { new VmfChunk("world") } }.ToBytes());
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/x.roompack", "base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf"]);
+        Assert.Equal(1, exit);
+        Assert.Contains($"ssmap roompack: {Path.GetFullPath("/game/maps/caves.vmf")}: the library has no info_room entity;", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("compiled", log, StringComparison.Ordinal);
+
+        // Two libraries on different grids.
+        fs.AddFile(Rooted("/game/maps/caves.vmf"), RoomHarness.LibraryVmf(new RoomDefinition(
+            "cross", 128, new SocketKit(64, 96, 16), [new RoomSocket(RoomFacing.PositiveX, "east")])).ToBytes());
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/x.roompack", "base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf"]);
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "ssmap roompack: libraries base (../game/maps/base.vmf) and caves (../game/maps/caves.vmf) are built for different grids: cell_size 256 against 128;"
+            + " the rooms of a level share one cell size.",
+            log,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>-level</c> takes the libraries from a level file, in its order,
+    /// and writes the pack beside it, which the level then links from; a
+    /// level of one library keys it by its stem, and one whose stem is not a
+    /// key is refused.
+    /// </summary>
+    [Fact]
+    public async Task LevelTakesTheLibrariesFromALevelFile()
+    {
+        InMemoryFileSystem fs = Game();
+        fs.AddText(Rooted("/game/levels/multi.yaml"), MultiLevel);
+        (int exit, string log) = await PackAsync(fs, ["-level", "/game/levels/multi.yaml", "-nolight"]);
+        Assert.True(exit == Program.ExitSuccess, log);
+        Assert.Contains($"ssmap roompack: wrote {Path.GetFullPath("/game/levels/multi.roompack")} (4 of 4 room(s))", log, StringComparison.Ordinal);
+        (exit, log) = await LinkAsync(fs, "level", "-no-nav", "-rooms", "/game/levels/multi.roompack");
+        Assert.True(exit == Program.ExitSuccess, log);
+
+        fs.AddText(Rooted("/game/levels/one.yaml"), RoomHarness.LevelText("../maps/caves.vmf", "hub, other@90"));
+        (exit, log) = await PackAsync(fs, ["-level", "/game/levels/one.yaml", "-nolight"]);
+        Assert.True(exit == Program.ExitSuccess, log);
+        Assert.Contains("ssmap roompack: compiled caves.hub (", log, StringComparison.Ordinal);
+
+        fs.AddFile(Rooted("/game/maps/3x3.vmf"), Bytes(fs, "/game/maps/caves.vmf"));
+        fs.AddText(Rooted("/game/levels/stem.yaml"), RoomHarness.LevelText("../maps/3x3.vmf", "hub"));
+        (exit, log) = await PackAsync(fs, ["-level", "/game/levels/stem.yaml"]);
+        Assert.Equal(Program.ExitUsage, exit);
+        Assert.Contains("ssmap roompack: ../maps/3x3.vmf gives no key (3x3 is not a key); write key=../maps/3x3.vmf.", log, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// How <c>ssmap link</c> finds a level's rooms in packs with namespaces:
+    /// a combined <c>-rooms</c> pack without one of the level's keys is
+    /// refused naming its namespaces; a namespace built from a file of
+    /// another name warns and links; two keyless <c>-rooms</c> are a usage
+    /// error; and a level of one library links from its namespace (a pack
+    /// of <c>ssmap room -namespace</c>, beside the library or named) to the
+    /// map its plain pack gives, or is refused when the pack lacks its key.
+    /// </summary>
+    [Fact]
+    public async Task TheLinkFindsLibrariesInNamespaces()
+    {
+        InMemoryFileSystem fs = Game();
+        string combined = Path.GetFullPath("/packs/both.roompack");
+        Assert.Equal(Program.ExitSuccess, (await PackAsync(fs, ["-out", "/packs/both.roompack", "base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf", "-nolight"])).Exit);
+        fs.AddText(Rooted("/game/levels/multi.yaml"), MultiLevel);
+        (int exit, string log) = await LinkAsync(fs, "multi", "-no-nav", "-rooms", "/packs/both.roompack");
+        Assert.True(exit == Program.ExitSuccess, log);
+        byte[] map = Bytes(fs, "/out/multi.bsp");
+
+        fs.AddText(Rooted("/game/levels/multi.yaml"), MultiLevel.Replace("caves: ../maps/caves.vmf", "halls: ../maps/caves.vmf", StringComparison.Ordinal)
+            .Replace("caves.", "halls.", StringComparison.Ordinal));
+        (exit, log) = await LinkAsync(fs, "halls", "-no-nav", "-rooms", "/packs/both.roompack");
+        Assert.Equal(1, exit);
+        Assert.Contains($"ssmap link: room pack {combined} combines libraries base and caves; it has none named halls.", log, StringComparison.Ordinal);
+
+        // A namespace built from another file name: warned, and the same map.
+        fs.AddText(Rooted("/game/levels/multi.yaml"), MultiLevel.Replace("../maps/caves.vmf", "../elsewhere/cavern.vmf", StringComparison.Ordinal));
+        (exit, log) = await LinkAsync(fs, "moved", "-no-nav", "-rooms", "/packs/both.roompack");
+        Assert.True(exit == Program.ExitSuccess, log);
+        Assert.Contains(
+            $"ssmap link: warning: library caves: the level names ../elsewhere/cavern.vmf, but room pack {combined} built it from ../game/maps/caves.vmf.",
+            log,
+            StringComparison.Ordinal);
+        Assert.Equal(map, Bytes(fs, "/out/moved.bsp"));
+        fs.AddText(Rooted("/game/levels/multi.yaml"), MultiLevel.Replace("../maps/caves.vmf", "../elsewhere/caves.vmf", StringComparison.Ordinal));
+        (exit, log) = await LinkAsync(fs, "same-name", "-no-nav", "-rooms", "/packs/both.roompack");
+        Assert.True(exit == Program.ExitSuccess, log);
+        Assert.DoesNotContain("warning", log, StringComparison.Ordinal);
+
+        string one = Path.GetFullPath("/packs/one.roompack"), two = Path.GetFullPath("/packs/two.roompack");
+        (exit, log) = await LinkAsync(fs, "twice", "-rooms", one, "-rooms", two);
+        Assert.Equal(Program.ExitUsage, exit);
+        Assert.Contains(
+            $"ssmap link: -rooms {one} and -rooms {two} each name a pack for every library of the level; give one, or -rooms <key>=<pack> for each key.",
+            log,
+            StringComparison.Ordinal);
+
+        // A level of one library: its namespace pack beside it, named, or the combined pack.
+        fs.AddText(Rooted("/game/levels/one.yaml"), RoomHarness.LevelText("../maps/base.vmf", "hub, other@90"));
+        Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs, ["/game/maps/base.vmf", "-nolight", "-out", "/packs/plain.roompack"])).Exit);
+        Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs, ["/game/maps/base.vmf", "-nolight", "-namespace", "base"])).Exit);
+        async Task<byte[]> One(string name, params string[] args)
+        {
+            using StringWriter output = new();
+            int code = await RoomCommands.RunLinkAsync(fs, ["/game/levels/one.yaml", "-no-nav", .. args, "-out", $"/out/{name}.bsp"], output);
+            Assert.True(code == Program.ExitSuccess, output.ToString());
+            Assert.DoesNotContain("warning", output.ToString(), StringComparison.Ordinal);
+            return Bytes(fs, $"/out/{name}.bsp");
+        }
+
+        byte[] plain = await One("plain", "-rooms", "/packs/plain.roompack");
+        Assert.Equal(plain, await One("beside"));
+        Assert.Equal(plain, await One("combined", "-rooms", "/packs/both.roompack"));
+
+        fs.AddText(Rooted("/game/levels/one.yaml"), RoomHarness.LevelText("../maps/halls.vmf", "hub"));
+        using StringWriter missing = new();
+        Assert.Equal(1, await RoomCommands.RunLinkAsync(fs, ["/game/levels/one.yaml", "-no-nav", "-rooms", "/packs/both.roompack", "-out", "/out/x.bsp"], missing));
+        Assert.Contains($"ssmap link: room pack {combined} combines libraries base and caves; it has none named halls.", missing.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>ssmap rooms</c> and <c>ssmap layout</c> read a library's rooms out
+    /// of a combined pack by its key (a level's key, or a library VMF's
+    /// stem), and refuse a pack without it with the link's text.
+    /// </summary>
+    [Fact]
+    public async Task TheListingAndTheLayoutReadANamespace()
+    {
+        InMemoryFileSystem fs = Game();
+        string combined = Path.GetFullPath("/packs/both.roompack");
+        Assert.Equal(Program.ExitSuccess, (await PackAsync(fs, ["-out", "/packs/both.roompack", "base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf", "-nolight"])).Exit);
+        fs.AddText(Rooted("/game/levels/multi.yaml"), MultiLevel);
+
+        using (StringWriter list = new())
+        {
+            Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/levels/multi.yaml", "-rooms", "/packs/both.roompack"], list));
+            string text = list.ToString();
+            Assert.Contains("library caves: ../maps/caves.vmf\n", text, StringComparison.Ordinal);
+            Assert.Equal(4, text.Split('\n').Count(l => l.StartsWith("  entities: ", StringComparison.Ordinal)));
+            Assert.Contains("library: 1 entities per level", text, StringComparison.Ordinal);
+        }
+
+        using (StringWriter list = new())
+        {
+            Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/caves.vmf", "-rooms", "/packs/both.roompack"], list));
+            Assert.Equal(2, list.ToString().Split('\n').Count(l => l.StartsWith("  entities: ", StringComparison.Ordinal)));
+        }
+
+        using (StringWriter layout = new())
+        {
+            int exit = await RoomCommands.RunLayoutAsync(
+                fs, ["/game/maps/caves.vmf", "-rows", "2", "-columns", "2", "-seed", "1", "-rooms", "/packs/both.roompack", "-entity-budget", "200"], layout);
+            Assert.True(exit == Program.ExitSuccess, layout.ToString());
+        }
+
+        fs.AddFile(Rooted("/game/maps/halls.vmf"), Bytes(fs, "/game/maps/caves.vmf"));
+        string none = $"room pack {combined} combines libraries base and caves; it has none named halls.";
+        using (StringWriter list = new())
+        {
+            Assert.Equal(1, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/halls.vmf", "-rooms", "/packs/both.roompack"], list));
+            Assert.Contains("ssmap rooms: " + none, list.ToString(), StringComparison.Ordinal);
+        }
+
+        using (StringWriter layout = new())
+        {
+            Assert.Equal(1, await RoomCommands.RunLayoutAsync(
+                fs, ["/game/maps/halls.vmf", "-rows", "2", "-columns", "2", "-seed", "1", "-rooms", "/packs/both.roompack"], layout));
+            Assert.Contains("ssmap layout: " + none, layout.ToString(), StringComparison.Ordinal);
+        }
+    }
+
     // ---- helpers --------------------------------------------------------------
 
     /// <summary>
@@ -264,6 +588,33 @@ public sealed class RoomPackCommandsTests
         using StringWriter output = new();
         int exit = await RoomCommands.RunLinkAsync(fs, ["/game/levels/multi.yaml", .. args, "-out", $"/out/{name}.bsp"], output);
         return (exit, output.ToString());
+    }
+
+    /// <summary>A library with one more entity in a room, room-local.</summary>
+    private static VmfDocument WithEntity(VmfDocument library, int room, VmfChunk entity)
+    {
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+        Vec3 corner = split.Rooms[room].Corner;
+        Vec3 origin = Vec3Of(entity.GetValue("origin")!) + corner;
+        entity.Children.Remove(entity.Keys.First(k => k.Name == "origin"));
+        entity.AddKey("origin", VmfPlacement.Format(origin));
+        library.Chunks.Add(entity);
+        return library;
+    }
+
+    private static Vec3 Vec3Of(string text)
+    {
+        float[] v = [.. text.Split(' ').Select(t => float.Parse(t, System.Globalization.CultureInfo.InvariantCulture))];
+        return new Vec3(v[0], v[1], v[2]);
+    }
+
+    /// <summary>A run of a pack's rooms, every section's bytes, as text to compare.</summary>
+    private static async Task<string> SectionsAsync(byte[] pack, int first, int count)
+    {
+        using MemoryStream stream = new(pack);
+        RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+        IReadOnlyList<RoomPackItem> items = await RoomPack.ReadItemsAsync(stream, index, first, count);
+        return string.Join("\n", items.Select(i => $"{i.Name} {Convert.ToHexString(i.Room.Span)}"));
     }
 
     private static byte[] Bytes(InMemoryFileSystem fs, string path) =>
