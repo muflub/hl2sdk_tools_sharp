@@ -84,9 +84,16 @@ namespace SourceSharp.MapTools.Rooms;
 /// other side), in which every cluster of a level sees every other.
 /// </para>
 /// <para>
-/// A room whose compile left anything outside the relocation set —
-/// displacements, detail props — is refused rather than silently
-/// dropped: the linked map must be the rooms, not an approximation of them.
+/// A room whose compile left anything outside the relocation set — detail
+/// props — is refused rather than silently dropped: the linked map must be
+/// the rooms, not an approximation of them.
+/// </para>
+/// <para>
+/// <b>Displacements</b> are carried: every placed room's displacements in
+/// link order, each start moved and its vertices' vectors turned with its
+/// room, its runs, base face and neighbours rebased, its collision hull the
+/// room's; none is stitched across a joint, which the pack refuses
+/// (<see cref="LinkDisplacements"/>, <see cref="RoomDisplacements"/>).
 /// </para>
 /// <para>
 /// <b>Areas and area portals</b> are carried: every placement's own areas
@@ -154,9 +161,8 @@ public static partial class LevelLinker
     /// </summary>
     /// <remarks>
     /// Several of these are carried only in their empty form, and
-    /// <see cref="PlanRoom"/> checks that: <see cref="BspLump.PhysDisp"/> counts
-    /// no displacement, and every game lump but the static props' is all
-    /// zeros (no detail props); the static prop lump is rebuilt for the
+    /// <see cref="PlanRoom"/> checks that: every game lump but the static
+    /// props' is all zeros (no detail props); the static prop lump is rebuilt for the
     /// level from the rooms' (<see cref="WritePropsAsync"/>).
     /// <see cref="BspLump.PakFile"/> is carried whole: the rooms'
     /// archives are merged (<see cref="LevelPakFiles"/>).
@@ -176,6 +182,13 @@ public static partial class LevelLinker
     /// are rebuilt for the level from the rooms' (<see cref="PlanWaterData"/>,
     /// <see cref="LinkWaterOverlays"/>) when the room's compile left its
     /// water data with it (<see cref="RoomWaterOf"/>).
+    /// The five displacement lumps (<see cref="BspLump.DispInfo"/>,
+    /// <see cref="BspLump.DispVerts"/>, <see cref="BspLump.DispTris"/>,
+    /// <see cref="BspLump.DispLightmapAlphas"/> and
+    /// <see cref="BspLump.DispLightmapSamplePositions"/>) and the entries of
+    /// <see cref="BspLump.PhysDisp"/> are every placement's, rebased
+    /// (<see cref="LinkDisplacements"/>), when the room's compile left its
+    /// displacement data with it (<see cref="RoomDisplacementsOf"/>).
     /// </remarks>
     private static readonly ImmutableHashSet<BspLump> CarriedLumps =
         ImmutableHashSet.CreateRange([
@@ -193,6 +206,8 @@ public static partial class LevelLinker
         BspLump.PhysCollide, BspLump.PhysDisp,
         BspLump.Overlays, BspLump.OverlayFades,
         BspLump.LeafWaterData, BspLump.WaterOverlays,
+        BspLump.DispInfo, BspLump.DispVerts, BspLump.DispTris,
+        BspLump.DispLightmapAlphas, BspLump.DispLightmapSamplePositions,
         ]);
 
     /// <summary>Links <paramref name="layout"/>'s rooms into one map.</summary>
@@ -659,7 +674,8 @@ public static partial class LevelLinker
              faces = 0, origFaces = 0, brushes = 0, leafFaces = 0,
              leaves = 1, lighting = 0,
              primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
-             occluders = 0, occluderPolys = 0, occluderVerts = 0, overlays = 0;
+             occluders = 0, occluderPolys = 0, occluderVerts = 0, overlays = 0,
+             displacements = 0, dispVerts = 0, dispTris = 0, dispAlphas = 0, dispSamples = 0;
 
         // The world faces of every placement come first, then the water
         // doorways' surfaces (model 0's too), then every kept brush model's,
@@ -700,6 +716,11 @@ public static partial class LevelLinker
             plan.OccluderPolyBase = (int)occluderPolys;
             plan.OccluderVertexBase = (int)occluderVerts;
             plan.OverlayBase = (int)overlays;
+            plan.DispBase = (int)displacements;
+            plan.DispVertBase = (int)dispVerts;
+            plan.DispTriBase = (int)dispTris;
+            plan.DispAlphaBase = (int)dispAlphas;
+            plan.DispSampleBase = (int)dispSamples;
 
             vertices += plan.Vertices.Length + (plan.Models?.LocalVertices.Length ?? 0);
             edges += plan.EdgeCount;
@@ -719,6 +740,14 @@ public static partial class LevelLinker
             occluderPolys += plan.Occlusion?.Polys.Count ?? 0;
             occluderVerts += plan.Occlusion?.VertexIndices.Count ?? 0;
             overlays += plan.Overlays?.Count ?? 0;
+            if (plan.Displacements is { } disps)
+            {
+                displacements += disps.Count;
+                dispVerts += disps.VertexCount;
+                dispTris += BspStructView.Count<DispTri>(plan.Bsp[BspLump.DispTris]);
+                dispAlphas += plan.Bsp[BspLump.DispLightmapAlphas].Length;
+                dispSamples += plan.Bsp[BspLump.DispLightmapSamplePositions].Length;
+            }
         }
     }
 
@@ -1010,6 +1039,9 @@ public static partial class LevelLinker
         /// <summary>The room's overlays (<c>info_overlay</c> records), which the link appends as they are.</summary>
         public int Overlays { get; init; }
 
+        /// <summary>The room's displacements, which the link appends as they are.</summary>
+        public int Displacements { get; init; }
+
         /// <summary>
         /// A compiled room's counts of the lumps it appends, read as
         /// <see cref="PlanRoom"/> reads them; the shared tables' counts are
@@ -1030,6 +1062,7 @@ public static partial class LevelLinker
             Nodes = BspStructView.Count<DNode>(bsp[BspLump.Nodes]),
             Clusters = clusters,
             Overlays = BspStructView.Count<DOverlay>(bsp[BspLump.Overlays]),
+            Displacements = BspStructView.Count<DispInfo>(bsp[BspLump.DispInfo]),
         };
     }
 
@@ -1088,7 +1121,10 @@ public static partial class LevelLinker
     /// The overlays are a sixth kind of cap: no field narrower than their
     /// ids holds them, but vbsp refuses a map with more than
     /// <c>MAX_MAP_OVERLAYS</c> (512), so the flattened level would not
-    /// compile (<see cref="OverlayLimit"/>).
+    /// compile (<see cref="OverlayLimit"/>). The displacements are a
+    /// seventh of the same kind: the SDK's vbsp refuses more than
+    /// <c>MAX_MAP_DISPINFO</c> (2048), below the <c>short</c> a face names
+    /// its displacement by (<see cref="DisplacementLimit"/>).
     /// </para>
     /// </remarks>
     internal sealed class LinkTotals(bool checkBrushes = true)
@@ -1110,7 +1146,7 @@ public static partial class LevelLinker
         private readonly int _nodeCap = Cap(BspLump.Nodes);
 
         private long _vertices, _texDatas, _faces, _brushes, _brushSides, _leafFaces, _leaves = 1,
-            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters, _nodes = -1, _overlays;
+            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters, _nodes = -1, _overlays, _displacements;
 
         /// <summary>Adds one room, refusing the first total it pushes past its limit.</summary>
         public void Add(LinkCounts counts, string room, int cellX, int cellY)
@@ -1130,6 +1166,7 @@ public static partial class LevelLinker
             _nodes += counts.Nodes + 2;
             _clusters += counts.Clusters;
             _overlays += counts.Overlays;
+            _displacements += counts.Displacements;
 
             Limit(room, cellX, cellY, "vertices", _vertices, ushort.MaxValue + 1);
             LoaderLimit(room, cellX, cellY, "texdatas", _texDatas, _texDataCap, "MAX_MAP_TEXDATA");
@@ -1148,6 +1185,7 @@ public static partial class LevelLinker
             Limit(room, cellX, cellY, "vertex normals", _vertexNormals, ushort.MaxValue + 1);
             LoaderLimit(room, cellX, cellY, "nodes", _nodes, _nodeCap, "MAX_MAP_NODES");
             OverlayLimit(room, cellX, cellY, _overlays);
+            DisplacementLimit(room, cellX, cellY, _displacements);
         }
 
         /// <summary>

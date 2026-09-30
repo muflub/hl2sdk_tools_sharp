@@ -192,6 +192,14 @@ public static class RoomCompiler
             throw new RoomLintException(portalProblem);
         }
 
+        // A displacement of power 4, out of the cell or in a doorway (the
+        // rooms design, 4.5), refused before the compile as the split
+        // refuses it for a library's rooms.
+        if (RoomDisplacements.Problem(definition, document) is { } displacementProblem)
+        {
+            throw new RoomLintException(displacementProblem);
+        }
+
         // The room packs what vbsp packs for any map, the default cubemaps
         // named after the room included: the link carries every room's
         // files and renames those to the level's map name (LevelPakFiles),
@@ -290,6 +298,11 @@ public static class RoomCompiler
         // four ways (the texinfos, ids and faces are the link's).
         RoomWater? water = RoomWater.Build(definition, vbsp.Bsp, waterSockets, context.Patcher.OriginalNameFor);
 
+        // The displacements the link carries: every start position and
+        // vertex vector turned four ways (the runs, faces and neighbours are
+        // rebased by the link; the rest is the room's lumps byte for byte).
+        RoomDisplacements? displacements = RoomDisplacements.Build(definition.Name, vbsp.Bsp);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
@@ -304,6 +317,7 @@ public static class RoomCompiler
             Overlays = overlays,
             AreaPortals = areaPortals,
             Water = water,
+            Displacements = displacements,
         };
     }
 

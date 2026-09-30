@@ -85,7 +85,7 @@ public static partial class LevelLinker
         RoomPlan[] plans, ComplianceOptions compliance, int[]? brushMap, List<DoorwayWaterPiece> doorways, CancellationToken cancellationToken)
     {
         List<RoomPlan> with = [.. plans.Where(p => p.Bsp[BspLump.PhysCollide].Length > 0)];
-        byte[]? physDisp = plans.Any(p => p.Bsp[BspLump.PhysDisp].Length > 0) ? PhysDispLump.Write([]) : null;
+        byte[]? physDisp = LinkDisplacementCollision(plans);
         if (with.Count == 0)
         {
             return (null, physDisp);

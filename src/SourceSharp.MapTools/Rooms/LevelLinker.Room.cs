@@ -5,7 +5,6 @@
 //
 //=============================================================================//
 
-using System.Buffers.Binary;
 
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
@@ -116,6 +115,7 @@ public static partial class LevelLinker
             FaceVertexStarts = lighting is null ? null : FaceVertexStarts(bsp),
             Overlays = RoomOverlaysOf(room),
             Water = RoomWaterOf(room),
+            Displacements = RoomDisplacementsOf(room),
             AreaPortals = areaPortals,
             AreaLumps = areaPortals is null ? null : RoomAreaPortals.Lumps(room.Definition.Name, bsp),
         };
@@ -177,16 +177,6 @@ public static partial class LevelLinker
                     $"room {name} has content in game lump '{entry.IdString()}' (static or detail props);"
                     + " the relocation carries only empty game lumps");
             }
-        }
-    }
-
-    /// <summary>Refuses displacement collision (displacements themselves are refused by lump).</summary>
-    private static void RefuseDisplacementCollision(string name, BspData bsp)
-    {
-        ReadOnlySpan<byte> disp = bsp[BspLump.PhysDisp].Data.Span;
-        if (disp.Length != 0 && (disp.Length != 2 || BinaryPrimitives.ReadUInt16LittleEndian(disp) != 0))
-        {
-            throw new LinkException($"room {name} carries displacement collision, which the relocation refuses");
         }
     }
 
@@ -622,6 +612,24 @@ public static partial class LevelLinker
 
         /// <summary>How many water overlays every placement before this one has: its water overlay 0's offset from the first id.</summary>
         public int WaterOverlayBase;
+
+        /// <summary>The room's displacements (<see cref="RoomDisplacements"/>), or null for a room with none.</summary>
+        public RoomDisplacements? Displacements { get; init; }
+
+        /// <summary>The linked index of the room's displacement 0: the displacements of every placement before this one.</summary>
+        public int DispBase;
+
+        /// <summary>Where the room's displacement vertices start in the level's <c>DispVerts</c>.</summary>
+        public int DispVertBase;
+
+        /// <summary>Where the room's displacement triangles start in the level's <c>DispTris</c>.</summary>
+        public int DispTriBase;
+
+        /// <summary>Where the room's lightmap alphas start in the level's <c>DispLightmapAlphas</c>, in bytes.</summary>
+        public int DispAlphaBase;
+
+        /// <summary>Where the room's sample positions start in the level's <c>DispLightmapSamplePositions</c>, in bytes.</summary>
+        public int DispSampleBase;
 
         /// <summary>Whether this is the library's skybox room, placed below the grid (<see cref="SkyboxOf"/>).</summary>
         public bool IsSkybox => Placement.Instance.Placement.Level != 0;
