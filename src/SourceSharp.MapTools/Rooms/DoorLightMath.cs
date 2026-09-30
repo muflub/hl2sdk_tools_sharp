@@ -82,9 +82,32 @@ internal readonly record struct DoorSource(
 /// <param name="MinT">The face's lightmap mins along t.</param>
 /// <param name="Normal">The face's normal: its plane's.</param>
 /// <param name="Bumps">The three bump normals of a bumped face, else empty.</param>
+/// <remarks>
+/// <para>
+/// <b>Displacements.</b> A displacement's lightmap is not laid on its base
+/// face's plane: vrad spreads its luxels over the displaced surface, the
+/// luxel at lightmap column <c>s</c> standing at the surface's point
+/// <c>u = (s − mins) / (width − 1)</c>, with the surface's blended normal
+/// there. So a displacement face's cells carry its surface
+/// (<see cref="Surface"/>) and each cell's normal and bump normals
+/// (<see cref="CellNormals"/>, <see cref="CellBumps"/>), and every point and
+/// normal read through <see cref="At"/>, <see cref="NormalAt"/> and
+/// <see cref="BumpsAt"/> is the surface's; a brush face's are its plane's, as
+/// they always were.
+/// </para>
+/// </remarks>
 internal sealed record DoorFaceCells(
     int Face, int Width, int Height, Vec3 Origin, Vec3 AxisS, Vec3 AxisT, int MinS, int MinT, Vec3 Normal, Vec3[] Bumps)
 {
+    /// <summary>The displaced surface the face's luxels lie on, or null for a brush face.</summary>
+    public Rad.Displacement.VradDispSurface? Surface { get; init; }
+
+    /// <summary>A displacement face's normal at each cell's centre, or null for a brush face (whose cells share <see cref="Normal"/>).</summary>
+    public Vec3[]? CellNormals { get; init; }
+
+    /// <summary>A bumped displacement face's bump normals at each cell, or null (a brush face's cells share <see cref="Bumps"/>).</summary>
+    public Vec3[][]? CellBumps { get; init; }
+
     /// <summary>Cells across: one between each two luxels, or one on a face a luxel across.</summary>
     public int CellsAcross => Math.Max(Width - 1, 1);
 
@@ -106,7 +129,65 @@ internal sealed record DoorFaceCells(
     public Vec3 Point(int cell, float ds = 0, float dt = 0)
     {
         (float s, float t) = Coordinates(cell);
-        return Origin + (AxisS * (s + ds)) + (AxisT * (t + dt));
+        return At(s + ds, t + dt);
+    }
+
+    /// <summary>
+    /// The face's point at lightmap coordinates (s, t): on its plane for a
+    /// brush face, on its displaced surface for a displacement.
+    /// </summary>
+    public Vec3 At(float s, float t)
+    {
+        if (Surface is not { } surface)
+        {
+            return Origin + (AxisS * s) + (AxisT * t);
+        }
+
+        Vec3 point = Vec3.Zero;
+        surface.DispUVToSurfPoint(SurfaceU(s, MinS, Width), SurfaceU(t, MinT, Height), 1.0f, ref point);
+        return point;
+    }
+
+    /// <summary>A cell's normal: the face's, or a displacement's at the cell.</summary>
+    public Vec3 NormalAt(int cell) => CellNormals is { } normals ? normals[cell] : Normal;
+
+    /// <summary>A cell's bump normals: the face's, or a displacement's at the cell.</summary>
+    public Vec3[] BumpsAt(int cell) => CellBumps is { } bumps ? bumps[cell] : Bumps;
+
+    /// <summary>
+    /// A lightmap coordinate as a fraction of the displaced surface, as vrad
+    /// lays a displacement's luxels: its first luxel at 0, its last at 1;
+    /// clamped, and 0 on a face one luxel across.
+    /// </summary>
+    internal static float SurfaceU(float coordinate, int min, int luxels) =>
+        luxels <= 1 ? 0f : Math.Clamp((coordinate - min) / (luxels - 1), 0f, 1f);
+
+    /// <summary>
+    /// The same cells laid on a displacement's surface (<see cref="Surface"/>):
+    /// each cell's normal the surface's blended normal at its centre, and on
+    /// a bumped face its bump normals built on that normal from the face's
+    /// texture axes, as a displacement's luxels take theirs.
+    /// </summary>
+    internal DoorFaceCells OnSurface(Rad.Displacement.VradDispSurface surface, in TexInfo tex)
+    {
+        Vec3[] normals = new Vec3[Count];
+        Vec3[][]? bumps = Bumps.Length == 0 ? null : new Vec3[Count][];
+        Vec3 sVector = new(tex.TextureVecsTexelsPerWorldUnits[0], tex.TextureVecsTexelsPerWorldUnits[1], tex.TextureVecsTexelsPerWorldUnits[2]);
+        Vec3 tVector = new(tex.TextureVecsTexelsPerWorldUnits[4], tex.TextureVecsTexelsPerWorldUnits[5], tex.TextureVecsTexelsPerWorldUnits[6]);
+        for (int c = 0; c < Count; c++)
+        {
+            (float s, float t) = Coordinates(c);
+            Vec3 normal = Normal;
+            surface.DispUVToSurfNormal(SurfaceU(s, MinS, Width), SurfaceU(t, MinT, Height), ref normal);
+            normals[c] = normal;
+            if (bumps is not null)
+            {
+                bumps[c] = new Vec3[BumpBasis.Count];
+                BumpBasis.Build(sVector, tVector, normal, normal, bumps[c], stockNormalise: false);
+            }
+        }
+
+        return this with { Surface = surface, CellNormals = normals, CellBumps = bumps };
     }
 }
 

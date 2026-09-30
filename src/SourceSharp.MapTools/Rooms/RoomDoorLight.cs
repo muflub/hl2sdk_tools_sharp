@@ -14,6 +14,7 @@ using SourceSharp.MapFormats.Numerics;
 
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Materials;
+using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Rad;
 using SourceSharp.MapTools.Rad.Ambient;
@@ -545,16 +546,43 @@ internal sealed partial class RoomDoorLight
         return false;
     }
 
-    /// <summary>Every face's cells (<see cref="DoorLightMath.FaceCells"/>), null for a face vrad does not light.</summary>
+    /// <summary>
+    /// Every face's cells (<see cref="DoorLightMath.FaceCells"/>), null for a
+    /// face vrad does not light; a displacement's laid on its displaced
+    /// surface (<see cref="DoorFaceCells.OnSurface"/>).
+    /// </summary>
+    /// <remarks>
+    /// The pack records which cells of each opening a face's cells see, and
+    /// the link evaluates light at the same cells, so both build them here
+    /// from the room's own lumps. The surfaces are built as vrad builds them
+    /// from the lumps (<see cref="Disp.DispLightingLoader"/>), with the
+    /// correct arithmetic whatever the compile's compliance: they place the
+    /// door light's receivers, which the pack and the link must agree on,
+    /// not the room's own bake.
+    /// </remarks>
     internal static DoorFaceCells?[] FaceCellsOf(BspData bsp)
     {
         ReadOnlySpan<DFace> faces = BspStructView.As<DFace>(bsp[BspLump.Faces]);
         ReadOnlySpan<DPlane> planes = BspStructView.As<DPlane>(bsp[BspLump.Planes]);
         ReadOnlySpan<TexInfo> texInfos = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]);
         DoorFaceCells?[] cells = new DoorFaceCells?[faces.Length];
+        Disp.CoreDispInfo[]? cores = null;
+        Rad.Light.DirectLightingSettings? settings = null;
         for (int f = 0; f < faces.Length; f++)
         {
             cells[f] = DoorLightMath.FaceCells(faces, planes, texInfos, f);
+            int disp = faces[f].DispInfo;
+            if (cells[f] is { } flat && disp >= 0)
+            {
+                cores ??= Disp.DispLightingLoader.Load(bsp, ComplianceOptions.Correct);
+                settings ??= Rad.Light.DirectLightingSettings.FromVrad(VradOptions.Default, hdr: false);
+                if (disp < cores.Length)
+                {
+                    TexInfo tex = texInfos[faces[f].TexInfo];
+                    cells[f] = flat.OnSurface(
+                        Rad.Displacement.VradDispSurface.Create(cores[disp], tex, settings, stockNormalise: false), tex);
+                }
+            }
         }
 
         return cells;
@@ -601,7 +629,7 @@ internal sealed partial class RoomDoorLight
             (Vec3, Vec3)[] points = new (Vec3, Vec3)[face.Count];
             for (int c = 0; c < points.Length; c++)
             {
-                points[c] = (face.Point(c), face.Normal);
+                points[c] = (face.Point(c), face.NormalAt(c));
             }
 
             DoorSeen seen = await SeenAsync(tracer, points, frame, cancellationToken).ConfigureAwait(false);

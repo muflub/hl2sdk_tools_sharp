@@ -180,7 +180,7 @@ public sealed class VmfPlacementTests
     /// vertices, power, flags) copied as written; the source is untouched.
     /// </summary>
     [Theory]
-    [InlineData(0, "[16 8 16]", "0 0 1 1 0 0", "0.5 -0.25 3 0 0 0")]
+    [InlineData(0, "[272 520 16]", "0 0 1 1 0 0", "0.5 -0.25 3 0 0 0")]
     [InlineData(1, "[248 528 16]", "0 0 1 0 1 0", "0.25 0.5 3 0 0 0")]
     [InlineData(2, "[240 504 16]", "0 0 1 -1 0 0", "-0.5 0.25 3 0 0 0")]
     [InlineData(3, "[264 496 16]", "0 0 1 0 -1 0", "-0.25 -0.5 3 0 0 0")]
@@ -203,7 +203,7 @@ public sealed class VmfPlacementTests
         Assert.Equal("0 255", moved.GetChunk("alphas")!.GetValue("row0"));
         Assert.Equal("9 9", moved.GetChunk("triangle_tags")!.GetValue("row0"));
         Assert.Equal("-1 -1", moved.GetChunk("allowed_verts")!.GetValue("10"));
-        Assert.Equal(disp.GetChunk("normals")!.GetValue("row0"), "0 0 1 1 0 0");
+        Assert.Equal("0 0 1 1 0 0", disp.GetChunk("normals")!.GetValue("row0"));
         Assert.Equal("[16 8 16]", disp.GetValue("startposition"));
     }
 

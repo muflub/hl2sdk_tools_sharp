@@ -611,14 +611,16 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
     public async Task ARoomTheLinkRefusesIsPackedWithoutLinkData()
     {
         RoomObject hub = fixture.Library.Get("hub");
-        RoomObject bad = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.DispInfo, new byte[176]));
+        // Water overlays: a lump outside the relocation set (displacements,
+        // which this fact used to use, are carried since PR 15).
+        RoomObject bad = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.WaterOverlays, new byte[16]));
         Assert.Null(await LevelLinker.TryPrecomputeAsync(bad, CancellationToken.None));
         RoomPackItem item = await RoomPackItem.CreateAsync(bad);
         Assert.Equal([RoomEntityCounts.SectionTag, "NAM0", "NAM1", "NAM2", "NAM3"], item.Extra.Select(s => s.Tag));
 
         RoomLibrary library = RoomHarness.Library(bad, fixture.Library.Get("end"), fixture.Library.Get("hall"));
         LinkException refused = await Assert.ThrowsAsync<LinkException>(() => LinkBytesAsync(library, 1));
-        Assert.Contains("carries lump DispInfo", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("carries lump WaterOverlays", refused.Message, StringComparison.Ordinal);
     }
 
     /// <summary>

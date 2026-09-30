@@ -126,7 +126,7 @@ public static partial class LevelLinker
         _ = RoomAreaPortalsOf(room);
         RefuseGameLumpContent(room);
         _ = RoomOverlaysOf(room);
-        RefuseDisplacementCollision(name, bsp);
+        _ = RoomDisplacementsOf(room);
 
         // The vis has to number the compile's own leaves before its rows are
         // shifted into anyone else's range.

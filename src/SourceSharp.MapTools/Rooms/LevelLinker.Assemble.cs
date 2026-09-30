@@ -764,6 +764,18 @@ public static partial class LevelLinker
             linked.SetLump(BspLump.PhysDisp, physDisp);
         }
 
+        // Displacements: every placement's, rebased and moved; a level whose
+        // rooms have none carries none of the lumps, as before they were
+        // carried.
+        if (LinkDisplacements(plans) is { } displacements)
+        {
+            linked.SetLump(BspLump.DispInfo, displacements.Infos.Bytes, displacements.Infos.Version);
+            linked.SetLump(BspLump.DispVerts, displacements.Verts.Bytes, displacements.Verts.Version);
+            linked.SetLump(BspLump.DispTris, displacements.Tris.Bytes, displacements.Tris.Version);
+            linked.SetLump(BspLump.DispLightmapAlphas, displacements.Alphas.Bytes, displacements.Alphas.Version);
+            linked.SetLump(BspLump.DispLightmapSamplePositions, displacements.SamplePositions.Bytes, displacements.SamplePositions.Version);
+        }
+
         // Overlays: every placement's, rebased and moved; a level whose rooms
         // have none carries neither lump, as before overlays were carried.
         if (LinkOverlays(plans) is { } overlays)
@@ -901,6 +913,10 @@ public static partial class LevelLinker
         }
 
         shifted.FirstEdge = face.FirstEdge + plan.SurfEdgeBase;
+
+        // A displacement's base face names its displacement, which the link
+        // numbers after every earlier placement's (LinkDisplacements).
+        shifted.DispInfo = face.DispInfo < 0 ? face.DispInfo : (short)(face.DispInfo + plan.DispBase);
         // A lit room's bake lights its drawn faces only; its original faces
         // keep what its compile wrote, as vrad leaves a map's (their offsets
         // name nothing in the level's lightmaps, where the bake's blocks are).

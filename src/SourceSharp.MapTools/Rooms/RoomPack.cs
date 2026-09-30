@@ -158,9 +158,15 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // room without them gets no section, so its entry is what it was
         // before area portals were carried.
         IReadOnlyList<RoomPackSectionData> areaPortals = room.AreaPortalsOfCompile is { } portals ? [portals.ToSection()] : [];
+
+        // The displacements likewise, for a room whose compile wrote any:
+        // every placement reads them, whatever its turn (the section holds
+        // all four). A room without them gets no section, so its entry is
+        // what it was before displacements were carried.
+        IReadOnlyList<RoomPackSectionData> displacements = room.DisplacementsOfCompile is { } disps ? [disps.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. displacements, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -327,7 +333,9 @@ public sealed class RoomPackIndex
 /// (<c>OVLY</c>: every record's origin and basis at all four turns,
 /// <c>RoomOverlays</c>), when its compile has area portals its areas and
 /// portals (<c>APRT</c>: the clip vertices at all four turns and the portal
-/// numbers, <c>RoomAreaPortals</c>), and the link work done ahead for it
+/// numbers, <c>RoomAreaPortals</c>), when its compile wrote displacements
+/// its displacements (<c>DISP</c>: every start position and vertex vector at
+/// all four turns, <c>RoomDisplacements</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
 /// then per quarter turn <i>r</i> its turned geometry
@@ -923,6 +931,11 @@ public static class RoomPack
                 wanted.Add((name, areaPortals));
             }
 
+            if (entry.Find(RoomDisplacements.SectionTag) is { } displacements)
+            {
+                wanted.Add((name, displacements));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -1030,9 +1043,10 @@ public static class RoomPack
             RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
             RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
             RoomAreaPortals? areaPortals = RoomAreaPortals.Read(Section(name, RoomAreaPortals.SectionTag), name, room.Bsp);
+            RoomDisplacements? displacements = RoomDisplacements.Read(Section(name, RoomDisplacements.SectionTag), name, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
                 && cubemaps is null && overlays is null
-                && lighting is null && doorLight is null && areaPortals is null
+                && lighting is null && doorLight is null && areaPortals is null && displacements is null
                 ? room
                 : room with
                 {
@@ -1042,6 +1056,7 @@ public static class RoomPack
                     Lighting = lighting,
                     DoorLight = doorLight,
                     AreaPortals = areaPortals,
+                    Displacements = displacements,
                 };
         }
 
@@ -1515,6 +1530,7 @@ public static class RoomPack
         ((byte)'L', (byte)'I', (byte)'T', (byte)'E') => RoomLighting.SectionTag,
         ((byte)'D', (byte)'L', (byte)'I', (byte)'T') => RoomDoorLight.SectionTag,
         ((byte)'A', (byte)'P', (byte)'R', (byte)'T') => RoomAreaPortals.SectionTag,
+        ((byte)'D', (byte)'I', (byte)'S', (byte)'P') => RoomDisplacements.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),

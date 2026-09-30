@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 
@@ -155,11 +156,11 @@ internal static class VmfPlacement
     /// <param name="solid">The <c>solid</c> chunk.</param>
     /// <param name="turn">The move.</param>
     /// <returns>The moved copy.</returns>
-    /// <exception cref="RoomLibraryException">The brush is malformed or carries a displacement.</exception>
+    /// <exception cref="RoomLibraryException">The brush is malformed, or a displacement's keys are.</exception>
     /// <remarks>
-    /// Displacements are refused rather than moved: their start position and
-    /// normals would need moving too, and the linker refuses a room that has
-    /// any, so a library that had one could never be linked anyway.
+    /// A displacement side's <c>dispinfo</c> moves with it
+    /// (<see cref="MoveDispInfo"/>): its start position as a point, its
+    /// normals and offsets as directions.
     /// </remarks>
     public static VmfChunk MoveSolid(VmfChunk solid, QuarterTurn turn)
     {
@@ -312,13 +313,9 @@ internal static class VmfPlacement
         {
             if (node is VmfChunk child)
             {
-                if (string.Equals(child.Name, "dispinfo", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new RoomLibraryException(
-                        $"brush {IdOf(solid)} is a displacement; a room cannot carry displacements.");
-                }
-
-                moved.Children.Add(Clone(child));
+                moved.Children.Add(string.Equals(child.Name, DispInfoChunk, StringComparison.OrdinalIgnoreCase)
+                    ? MoveDispInfo(child, solid, turn)
+                    : Clone(child));
                 continue;
             }
 
@@ -343,6 +340,111 @@ internal static class VmfPlacement
         }
 
         return moved;
+    }
+
+    /// <summary>A side's displacement chunk.</summary>
+    internal const string DispInfoChunk = "dispinfo";
+
+    /// <summary>The rows of a <c>dispinfo</c> that hold one direction per vertex.</summary>
+    private static readonly ImmutableArray<string> DispDirectionRows = ["normals", "offsets", "offset_normals"];
+
+    /// <summary>
+    /// A displacement moved with its side: the <c>startposition</c> point
+    /// through the whole move, every vector of its direction rows turned.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// vbsp builds a displacement over its side's four corners, starting at
+    /// the corner nearest <c>startposition</c>, and places each vertex at its
+    /// point of that quad plus <c>normals</c> times <c>distances</c> plus
+    /// <c>offsets</c>. The side's corners are moved with its plane
+    /// (<see cref="MoveSide"/>), so the start position moves as a point and
+    /// the per-vertex vectors turn as directions; that keeps the start corner
+    /// the same corner of the quad, and so every vertex, row and triangle
+    /// where it was on the surface. <c>offset_normals</c>, which vbsp does
+    /// not read (Hammer keeps them for its own editing), turn too, so the
+    /// moved file edits as the room did.
+    /// </para>
+    /// <para>
+    /// Distances, alphas, triangle tags, allowed vertices, power, flags and
+    /// the rest are the same on the moved surface and are copied. A quarter
+    /// turn permutes and negates components, so every turned number is
+    /// exact; each is written in its shortest round-trip spelling
+    /// (<see cref="Format(float)"/>), which vbsp reads back to the same
+    /// float.
+    /// </para>
+    /// </remarks>
+    private static VmfChunk MoveDispInfo(VmfChunk dispinfo, VmfChunk solid, QuarterTurn turn)
+    {
+        VmfChunk moved = new(dispinfo.Name);
+        foreach (VmfNode node in dispinfo.Children)
+        {
+            if (node is VmfChunk rows)
+            {
+                moved.Children.Add(DispDirectionRows.Any(r => string.Equals(rows.Name, r, StringComparison.OrdinalIgnoreCase))
+                    ? TurnRows(rows, turn, solid)
+                    : Clone(rows));
+                continue;
+            }
+
+            VmfKey key = (VmfKey)node;
+            string value = key.Value;
+            if (IsKey(key.Name, "startposition"))
+            {
+                value = $"[{Format(turn.Apply(Bracketed(value, key.Name, solid)))}]";
+            }
+
+            moved.Children.Add(new VmfKey(key.Name, value));
+        }
+
+        return moved;
+    }
+
+    /// <summary>A <c>dispinfo</c> row chunk of vectors (<c>rowN</c> keys, three numbers a vertex), every vector turned.</summary>
+    private static VmfChunk TurnRows(VmfChunk rows, QuarterTurn turn, VmfChunk solid)
+    {
+        VmfChunk moved = new(rows.Name);
+        foreach (VmfNode node in rows.Children)
+        {
+            if (node is not VmfKey key)
+            {
+                moved.Children.Add(Clone((VmfChunk)node));
+                continue;
+            }
+
+            string[] numbers = key.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (numbers.Length % 3 != 0)
+            {
+                throw new RoomLibraryException(
+                    $"brush {IdOf(solid)} has a displacement {rows.Name} {key.Name} of {numbers.Length} numbers, not three per vertex.");
+            }
+
+            StringBuilder text = new();
+            for (int i = 0; i < numbers.Length; i += 3)
+            {
+                Vec3 v = turn.Rotate(new Vec3(
+                    Number(numbers[i], rows.Name, solid),
+                    Number(numbers[i + 1], rows.Name, solid),
+                    Number(numbers[i + 2], rows.Name, solid)));
+                text.Append(i == 0 ? string.Empty : " ").Append(Format(v));
+            }
+
+            moved.Children.Add(new VmfKey(key.Name, text.ToString()));
+        }
+
+        return moved;
+    }
+
+    /// <summary>Three numbers in brackets, <c>[x y z]</c>, as a displacement writes its start position.</summary>
+    private static Vec3 Bracketed(string text, string key, VmfChunk solid)
+    {
+        string trimmed = text.Trim();
+        if (trimmed.Length < 2 || trimmed[0] != '[' || trimmed[^1] != ']')
+        {
+            throw new RoomLibraryException($"brush {IdOf(solid)} has a displacement {key} \"{text}\", not \"[x y z]\".");
+        }
+
+        return Vector(trimmed[1..^1], key, solid);
     }
 
     /// <summary>A texture axis <c>[x y z shift] scale</c>, turned and re-shifted.</summary>

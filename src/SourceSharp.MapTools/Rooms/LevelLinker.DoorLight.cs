@@ -256,6 +256,10 @@ public static partial class LevelLinker
                 normals[k + 1] = to.DirectionToLocal(face.Bumps[k]);
             }
 
+            // A displacement's cells stand on its surface, each with its own
+            // normals (DoorFaceCells.OnSurface); a brush face's on its plane.
+            bool surface = face.Surface is not null;
+
             // The face's lightmap frame in door-local coordinates, once: a
             // receiver is its origin plus its lightmap coordinates along
             // the two axes.
@@ -273,12 +277,32 @@ public static partial class LevelLinker
                     }
 
                     (float s0, float t0) = face.Coordinates(c);
-                    for (int sy = 0; sy < n; sy++)
+                    if (surface)
                     {
-                        Vec3 row = origin + (axisT * (t0 + ((sy + 0.5f) / n) - 0.5f));
-                        for (int sx = 0; sx < n; sx++)
+                        normals[0] = to.DirectionToLocal(face.NormalAt(c));
+                        Vec3[] bumps = face.BumpsAt(c);
+                        for (int k = 0; k < bumps.Length; k++)
                         {
-                            points[(sy * n) + sx] = row + (axisS * (s0 + ((sx + 0.5f) / n) - 0.5f));
+                            normals[k + 1] = to.DirectionToLocal(bumps[k]);
+                        }
+
+                        for (int sy = 0; sy < n; sy++)
+                        {
+                            for (int sx = 0; sx < n; sx++)
+                            {
+                                points[(sy * n) + sx] = to.ToLocal(face.At(s0 + ((sx + 0.5f) / n) - 0.5f, t0 + ((sy + 0.5f) / n) - 0.5f));
+                            }
+                        }
+                    }
+                    else
+                    {
+                        for (int sy = 0; sy < n; sy++)
+                        {
+                            Vec3 row = origin + (axisT * (t0 + ((sy + 0.5f) / n) - 0.5f));
+                            for (int sx = 0; sx < n; sx++)
+                            {
+                                points[(sy * n) + sx] = row + (axisS * (s0 + ((sx + 0.5f) / n) - 0.5f));
+                            }
                         }
                     }
 
