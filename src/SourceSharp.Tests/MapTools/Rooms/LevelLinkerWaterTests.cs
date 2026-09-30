@@ -602,7 +602,8 @@ public sealed class LevelLinkerWaterTests
             bsp.SetLump(BspLump.WaterOverlays, Bytes([overlay]));
         }
 
-        LinkException refused = Assert.Throws<LinkException>(() => RoomWater.Build("hub", bsp));
+        LinkException refused = Assert.Throws<LinkException>(
+            () => RoomWater.Build(RoomPropHarness.Hub, bsp, new Dictionary<string, RoomWaterSocket>(), name => name));
         Assert.StartsWith(expected, refused.Message, StringComparison.Ordinal);
     }
 
@@ -621,7 +622,7 @@ public sealed class LevelLinkerWaterTests
         RoomObject hub = (await CompileAsync(PoolLibrary())).Get("hub");
         byte[] section = hub.WaterOfCompile!.ToSection().Bytes.ToArray();
         byte[] payload = section[9..];
-        int fluidsEnd = FluidsEnd(payload);
+        int fluidsEnd = OverlaysAt(payload);
         switch (damage)
         {
             case 0:
@@ -768,8 +769,12 @@ public sealed class LevelLinkerWaterTests
         return count;
     }
 
-    /// <summary>Where a water payload's fluids end: past the revision, the record count, the fluid count and each fluid.</summary>
-    private static int FluidsEnd(byte[] payload)
+    /// <summary>
+    /// Where a water payload's overlay count is: past the revision, the
+    /// record count, the fluids and the sockets (dry ones here, a flag
+    /// byte each).
+    /// </summary>
+    private static int OverlaysAt(byte[] payload)
     {
         int at = 8;
         int fluids = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(payload.AsSpan(at));
@@ -780,7 +785,8 @@ public sealed class LevelLinkerWaterTests
             at += 4 + length + 4 + 4 + 12 + 4;
         }
 
-        return at;
+        int sockets = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(payload.AsSpan(at));
+        return at + 4 + sockets;
     }
 
     private static byte[] Bytes<T>(T[] items)

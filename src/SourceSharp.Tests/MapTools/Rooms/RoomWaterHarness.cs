@@ -48,6 +48,9 @@ internal static class RoomWaterHarness
     /// <summary>The underside both waters name as <c>$bottommaterial</c>.</summary>
     public const string Beneath = "unit/water_beneath";
 
+    /// <summary>Slime (<c>%compileSlime</c>): a liquid of its own, which vbsp keeps apart from water.</summary>
+    public const string Slime = "unit/slime";
+
     /// <summary>A water vrad lights (<c>%compileKeepLight</c>): its faces take lightmaps like any face.</summary>
     public const string LitWater = "unit/water_lit";
 
@@ -73,6 +76,8 @@ internal static class RoomWaterHarness
         [$"materials/{LitWater}.vmt"] = Encoding.ASCII.GetBytes(
             "\"Water\"\n{\n\t\"%compilewater\" \"1\"\n\t\"%compileKeepLight\" \"1\"\n\t\"$abovewater\" \"1\"\n"
             + $"\t\"$bottommaterial\" \"{Beneath}\"\n\t\"$surfaceprop\" \"water\"\n" + "}\n"),
+        [$"materials/{Slime}.vmt"] = Encoding.ASCII.GetBytes(
+            "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compileslime\" \"1\"\n\t\"$surfaceprop\" \"slime\"\n}\n"),
         [$"materials/{Beneath}.vmt"] = Encoding.ASCII.GetBytes(
             "\"Water\"\n{\n\t\"%compilewater\" \"1\"\n\t\"$abovewater\" \"0\"\n\t\"$surfaceprop\" \"water\"\n"
             + "\t\"$fogenable\" \"1\"\n\t\"$fogcolor\" \"{40 50 40}\"\n\t\"$fogstart\" \"0\"\n\t\"$fogend\" \"400\"\n}\n"),
@@ -245,6 +250,64 @@ internal static class RoomWaterHarness
         transition.Children.Add(WaterOverlay(new Vec3(80.3f, 71.1f, 56), surface, "0 1 0", "-1 0 0"));
         library.GetChunk(MapFileLoader.WorldChunk)!.Children.Add(transition);
         return library;
+    }
+
+    /// <summary>The water socket facts' level: the doorway's water stands 48 units above the floor's top (z 16).</summary>
+    public const float SocketLevel = 64;
+
+    /// <summary>
+    /// The hub's pool against its east plug: across the door's width, from
+    /// the floor to <see cref="SocketLevel"/>, half the room deep.
+    /// </summary>
+    public static Box EastPool(float level = SocketLevel) => new(new Vec3(144, 64, 16), new Vec3(240, 192, level));
+
+    /// <summary>The other room's pool against its west plug, as <see cref="EastPool"/> mirrored.</summary>
+    public static Box WestPool(float level = SocketLevel) => new(new Vec3(16, 64, 16), new Vec3(112, 192, level));
+
+    /// <summary>
+    /// The harness library with water through the hub's east door and the
+    /// other room's west door: each room's pool against that plug, and the
+    /// water socket declared on its <c>info_room</c>
+    /// (<see cref="RoomLibraryVmf.WaterKeyPrefix"/>), each at its own level
+    /// and material.
+    /// </summary>
+    public static VmfDocument SocketLibrary(
+        float hubLevel = SocketLevel, float otherLevel = SocketLevel, string hubMaterial = CheapWater, string otherMaterial = CheapWater)
+    {
+        VmfDocument library = Library(
+            [(0, Water(EastPool(hubLevel), WaterBrush, hubMaterial)), (1, Water(WestPool(otherLevel), WaterBrush + 1, otherMaterial))]);
+        Declare(library, "hub", "east", $"{VmfPlacement.Format(hubLevel)} {hubMaterial}");
+        Declare(library, "other", "west", $"{VmfPlacement.Format(otherLevel)} {otherMaterial}");
+        return library;
+    }
+
+    /// <summary>Adds a <c>water_&lt;wall&gt;</c> key to a room's <c>info_room</c>.</summary>
+    public static void Declare(VmfDocument library, string room, string wall, string value) =>
+        library.GetChunks(MapFileLoader.EntityChunk)
+            .First(e => e.GetValue("classname") == RoomLibraryVmf.RoomEntity && e.GetValue(RoomLibraryVmf.NameKey) == room)
+            .AddKey(RoomLibraryVmf.WaterKeyPrefix + wall, value);
+
+    /// <summary>
+    /// The library's rooms compiled as <c>ssmap room</c> compiles them, with
+    /// the managed cooker and each room's declared water sockets
+    /// (<see cref="RoomLibraryCompiler"/>'s compile of one room).
+    /// </summary>
+    public static async Task<RoomLibrary> CompileSocketsAsync(VmfDocument library, int degree = 1)
+    {
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+        RoomLibrary compiled = new(split.Rooms[0].Definition.Kit, split.Rooms[0].Definition.CellSize)
+        {
+            LibraryEntities = split.LibraryEntities,
+            Options = split.Options,
+        };
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+        foreach (LibraryRoom room in split.Rooms)
+        {
+            compiled.Add(await RoomCompiler.CompileAsync(
+                room.Document, room.Definition, await ContextAsync(room.Definition.Name, degree, cooker), null, room.WaterSockets, CancellationToken.None));
+        }
+
+        return compiled;
     }
 
     /// <summary>The library with the hub's pool of cheap water.</summary>

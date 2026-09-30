@@ -612,7 +612,9 @@ carve (`LevelLinker.CarveLeaf`) splits the doorway box at the surface plane,
 the lower part becomes a water leaf of the facing water data, and the
 linker adds a surface face and a fluid convex. All computable at link.
 Proposed (O7): first refuse water touching a socket plug box; add "water
-sockets" later.
+sockets" later. Both done in PR 14 (section 13, its landed note): a room
+declares a socket's water level on its `info_room`, and the link carves the
+doorway's water as above.
 
 **Lighting.** Water surfaces are lit like faces.
 
@@ -3716,6 +3718,127 @@ level's in the flattened compile (nothing in either map names them: vbsp's
 texinfo compaction drops the texinfo it made for them), and the order of
 fluids in the world record (the link's by placement, vbsp's by its tree).
 
+*Stage two: water sockets* (water continuing through a door, O7's "kit
+water levels later").
+
+- **Declaring.** A room declares a socket's water on its `info_room`:
+  `water_east`, `water_west`, `water_north` or `water_south`, each
+  `"<level> <material>"`, the height of the water's surface above the
+  cell's floor and its material, such as `48 nature/water_canals_cheap001`
+  (`LibraryRoom.WaterSockets`, `RoomWaterSocket`). The split refuses a key
+  on a wall without a door plug (`room "{room}" declares water on its
+  {wall} wall (water_{wall}), but its {wall} wall has no door plug.`), a
+  value that is not a height and a material, another wall name, and a
+  level at or below the door's sill (`... declares water at {level} on its
+  {wall} wall, at or below the door's sill ({sill}); water that does not
+  reach the doorway needs no water socket.`). The declaration is an input
+  of the room's cache key (folded only when present, so no other room's key
+  moved). The level is room-local and a turn is about +z, so a placement
+  never changes it.
+- **The plug rule.** Water may reach a declared socket's plug and no other
+  (15.4's refusal stands for the rest). The room compile holds each
+  declared socket to its water (`RoomWater.Door`): sampled half a unit
+  inside the plug's inner face at every half unit of the door's width and
+  height, and a quarter unit either side of the level, the room is water of
+  one record below the level and open air above it (`room {room}: socket
+  "{socket}" declares water at {level}, but ({x} {y} {z}) against its plug
+  holds {solid/air/water}; the water must fill the doorway to that height
+  and no higher.`, and `... meets two bodies of water; a water socket's
+  doorway meets one.` for water and slime side by side); the record's
+  surface is at the level (`... but the water against its plug has its
+  surface at {z}.`; a doorway wholly under water, the level at or above the
+  door's top, takes any surface at or above the top, vbsp's 16384 for a room
+  filled to its ceiling included); its material is the declared one, read
+  through vbsp's patch chain (`room {room}: socket "{socket}" declares
+  {material}, but the water against its plug is {actual}.`); and it is
+  unlit (`room {room}: socket "{socket}"'s water {material} is lit
+  (%compileKeepLight); the surface the link adds in a doorway has no
+  lightmap, so a water socket's water is unlit.`). The `WATR` section then
+  holds, per socket, the level, the record, the room's surface faces at the
+  level seen from above and from below (found by winding), the water
+  leaf's contents and the fluid the water is part of.
+- **The joint rule.** At a joint the two sockets are both dry or both
+  water at one level, compared exactly (`LevelWaterJoints`), refused
+  otherwise by the link (levels from the rooms' `WATR`) and the flatten
+  (levels from the declarations), with one text: `room {a} at cell ({x},
+  {y}) and room {b} at cell ({nx}, {ny}) meet with water at {la} at socket
+  "{sa}" and {lb} at socket "{sb}"; the water on the two sides of a joint
+  is at one level.` (`none` for a dry side). A capped water socket keeps
+  its plug; its water stays in its room.
+- **The carve.** Each doorway piece the plug carve leaves (`CarveLeaf`;
+  one per solid leaf the plug made) is cut by the level (`CarveWater`): a
+  piece the level crosses gets a node on the level's plane (shared in the
+  plane table), open air in front (the piece's own index, as every
+  doorway) and a new water leaf behind; a piece wholly below the level is a
+  water leaf; one whose top is the level (the room's compile split the plug
+  there) is a water leaf under a node whose front is a leaf as thin as the
+  plane, which only lists the surface; one at or above the level is open
+  air as before. A water leaf takes the room's water leaf contents and the
+  level's record for the socket's water, the doorway's cluster and area;
+  every new leaf is recorded as a doorway for the lighting's leaf ambient.
+  The node lists the doorway's surface: a face seen from above (listed in
+  the leaf above) and one from below (listed in the water leaf), each
+  following the room's own surface face (its plane, side, texinfo, fog
+  volume, styles and flags), over the piece's rectangle, wound as that
+  face is, with its own edges, surfedges, original face, face id, macro
+  and vertex normals (its template's first vertex's). The faces sit in
+  model 0's range after every world face and before the brush models', so
+  their count is made before the bases are assigned by the same carve run
+  on scratch lists (`CountWaterDoorwayFaces`). Each water leaf gets a water
+  brush (its box, six axial sides of the record's surface texinfo, the
+  water's contents without vvis's flag), added after the brush fold, so
+  traces meet the doorway's water as they meet the flattened level's; and a
+  convex of its box joins the fluid of the room's water at the socket, so
+  physics floats through the doorway.
+- **One body of water.** The records a water joint joins are made one
+  (`JoinedWater`, union-find over placement and record, the earlier root
+  kept): the group's lowest point, the surface texinfo of its first member
+  in link order, as vbsp finds one volume through the flattened level's
+  doorway; a chain and a ring of water doors link to one record. The
+  fluids stay each room's (the doorway's convexes in one of them), where
+  the flattened compile makes one of the body of water: the facts compare
+  their summed volume and extent per surface plane.
+- **The flatten** fills each joined water socket's plug box with a water
+  brush of the declared material up to the level (the whole box for a
+  doorway under water), moved with the room, which vbsp joins to the rooms'
+  water.
+- **Visibility and light.** Water leaves are open to vis (vvis sees through
+  water, and so do Q3's door flows, which look through the doorway's
+  rectangle), so the linked PVS is unchanged; the doorway's water leaves take
+  the facing cluster. vvis's water passes run over the level
+  (`RecomputeWaterSight`), so the leaves that see water through a door are
+  marked and measured with the doorway's surfaces among the water faces.
+  vrad lets light through water (its shadow mask holds no water), so the
+  door light (PR 10) through a water door is what it is through any door;
+  the doorway's surfaces are unlit, as a water socket's water must be.
+
+Decisions taken where the document is open: O7 as recommended (refuse
+first, then kit water levels), the level declared per socket on the
+room's marker with its material, so the split, the flatten and a level's
+joint rule read it without a compile (the design says "the kit knows the
+water level at a socket"; a room's marker is where its sockets are named);
+water levels compared exactly; a lit water refused at a water socket; the
+joined record's texinfo the first member's in link order. Measured
+equivalence: the hub and the other room jointed through their water doors
+at the four turns, a chain of three rooms, a ring of four and a doorway under
+water, linked and flattened and compiled whole: the same thing at every
+point of the lattice (the doorway's water to the level, open air above),
+one record in both, the fluids' volume and extent, and the doorway's surface
+wholly covered from above and below in both maps; a lit level with a water
+door links and passes `ssmap check`; through the CLI (`ssmap room` reading
+the declarations, `ssmap link`, `ssmap check`, `--flatten`) the same. The
+pack is the same bytes at one thread and four, and so is the link. Known
+differences, not refused: the doorway's surfaces take the room's surface
+face's texinfo, where the flattened compile's are cut from the doorway brush
+(the underside's texture alignment can differ); the joined record's texinfo
+(the first member's, where vbsp's flood picks one); and the fluids' count
+(above). Not done here: `ssmap layout` does not read water sockets, so a
+generated level may joint a water socket to a dry one, which the link then
+refuses; the 3x3 sample's `hall` did not grow its pool (the harness levels
+carry the facts at every turn, and the samples' digests show a level
+without water links as before); the stress library has no water; `ssmap
+rooms` does not list water.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
@@ -3923,6 +4046,8 @@ then.
 | 4.3 texel | R | `room {room}: prop_static {id} asks for texel lighting, which this vrad does not bake.` |
 | 4.5 socket | R | `room {room}: the displacement on brush side {side} has an edge on socket "{socket}"'s plug box; displacements may not meet at a joint.` |
 | 4.6 socket | R | `room {room}: water reaches socket "{socket}"; water may not touch a door plug.` |
+| 4.6 water joint | R | `room {a} at cell ({x}, {y}) and room {b} at cell ({nx}, {ny}) meet with water at {la} at socket "{sa}" and {lb} at socket "{sb}"; the water on the two sides of a joint is at one level.` (`none` for a dry side; PR 14) |
+| 4.6 water socket | R | `room {room}: socket "{socket}" declares water at {level}, but ({x} {y} {z}) against its plug holds {solid/air/water}; the water must fill the doorway to that height and no higher.` and the other water socket texts of PR 14's landed note |
 | 4.9 plug | R | `room {room}: info_overlay {id} names brush side {side}, which is socket "{socket}"'s plug.` |
 | 4.11 socket | R | `room {room}: func_areaportal {id} lies in socket "{socket}"'s plug box.` |
 | 4.13 conflict | R | `rooms {a} and {b} both pack {file} with different bytes.` |

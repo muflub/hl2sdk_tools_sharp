@@ -79,9 +79,10 @@ public static partial class LevelLinker
     /// names the box, which has the brush's contents (a fold merges only
     /// brushes of equal contents). The ledge's own geometry is untouched.
     /// </param>
+    /// <param name="doorways">The level's water doorway leaves, whose convexes join their rooms' fluids (<see cref="LinkFluids"/>).</param>
     /// <param name="cancellationToken">Cancels between rooms and solids.</param>
     internal static (byte[]? PhysCollide, byte[]? PhysDisp) MergeCollision(
-        RoomPlan[] plans, ComplianceOptions compliance, int[]? brushMap, CancellationToken cancellationToken)
+        RoomPlan[] plans, ComplianceOptions compliance, int[]? brushMap, List<DoorwayWaterPiece> doorways, CancellationToken cancellationToken)
     {
         List<RoomPlan> with = [.. plans.Where(p => p.Bsp[BspLump.PhysCollide].Length > 0)];
         byte[]? physDisp = plans.Any(p => p.Bsp[BspLump.PhysDisp].Length > 0) ? PhysDispLump.Write([]) : null;
@@ -174,7 +175,7 @@ public static partial class LevelLinker
 
             // The rooms' fluids after the static solids, as vbsp writes a
             // world's (LinkFluids).
-            foreach ((byte[] blob, PhysFluidEntry fluid) in LinkFluids(plans, cooker, materials, brushMap, cancellationToken))
+            foreach ((byte[] blob, PhysFluidEntry fluid) in LinkFluids(plans, cooker, materials, brushMap, doorways, cancellationToken))
             {
                 fluid.WriteText(text, solids.Count);
                 solids.Add(blob);

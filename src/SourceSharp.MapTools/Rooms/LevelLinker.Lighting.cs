@@ -242,6 +242,7 @@ public static partial class LevelLinker
     /// <param name="rowBytes">Bytes a row.</param>
     /// <param name="door">The level's door light, or null: what jointed neighbours add to each placement (<see cref="PlanDoorLightAsync"/>).</param>
     /// <param name="warnings">Where a face that would need more than four styles is told of.</param>
+    /// <param name="waterFaces">The level's water doorway surfaces, in linked order after the world's faces; null for none.</param>
     internal static void WriteLighting(
         BspData linked,
         RoomPlan[] plans,
@@ -252,9 +253,10 @@ public static partial class LevelLinker
         byte[] pvs,
         int rowBytes,
         LevelDoorLight? door = null,
-        List<string>? warnings = null)
+        List<string>? warnings = null,
+        List<DoorwayWaterFace>? waterFaces = null)
     {
-        List<(RoomPlan Plan, int Face)> faceOwners = FaceOwners(plans);
+        List<(RoomPlan Plan, int Face)> faceOwners = FaceOwners(plans, waterFaces ?? []);
         DFace[] faces = BspStructView.As<DFace>(linked[BspLump.Faces]).ToArray();
         int facesVersion = linked[BspLump.Faces].Version;
 
@@ -336,9 +338,11 @@ public static partial class LevelLinker
 
     /// <summary>
     /// The placement and room face behind each linked face, in the linked
-    /// order: every placement's world faces, then every kept brush model's.
+    /// order: every placement's world faces, then the water doorways'
+    /// surfaces (each lit as the room face it follows: unlit, as a water
+    /// socket's water is), then every kept brush model's.
     /// </summary>
-    private static List<(RoomPlan Plan, int Face)> FaceOwners(RoomPlan[] plans)
+    private static List<(RoomPlan Plan, int Face)> FaceOwners(RoomPlan[] plans, List<DoorwayWaterFace> waterFaces)
     {
         List<(RoomPlan, int)> owners = [];
         foreach (RoomPlan plan in plans)
@@ -347,6 +351,11 @@ public static partial class LevelLinker
             {
                 owners.Add((plan, f));
             }
+        }
+
+        foreach (DoorwayWaterFace face in waterFaces)
+        {
+            owners.Add((face.Plan, face.TemplateFace));
         }
 
         foreach (RoomPlan plan in plans)

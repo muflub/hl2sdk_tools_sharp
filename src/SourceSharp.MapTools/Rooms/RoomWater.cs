@@ -30,6 +30,37 @@ namespace SourceSharp.MapTools.Rooms;
 internal sealed record RoomWaterFluid(string SurfaceProp, float Damping, int Contents, Vec3 Normal, float Dist);
 
 /// <summary>
+/// A socket's water as its room declares it: the <c>water_&lt;wall&gt;</c>
+/// key of its <c>info_room</c> (the rooms design, 4.6: the kit's knowing the
+/// water level at a socket).
+/// </summary>
+/// <param name="Level">
+/// The height of the water's surface above the cell's floor, room-local:
+/// the same in every room a doorway joins, so the water continues through
+/// it. Above the door's sill; at or above the door's top the doorway is
+/// wholly under water.
+/// </param>
+/// <param name="Material">
+/// The water's material at the socket, as the author named it (the surface
+/// material of the room's water there, and the material the flattened
+/// level fills the doorway with).
+/// </param>
+public sealed record RoomWaterSocket(float Level, string Material);
+
+/// <summary>
+/// What a water socket's room compile holds at its doorway, room-local: what
+/// the link carves the doorway's water from.
+/// </summary>
+/// <param name="Level">The water's surface height, as declared and found.</param>
+/// <param name="Record">The room's water record (<c>LeafWaterData</c>) the water against the plug names.</param>
+/// <param name="TopFace">A face of the room's surface at the level seen from above, whose texinfo and plane the doorway's surface takes; -1 when the doorway is wholly under water.</param>
+/// <param name="BottomFace">A face of the surface seen from below (the <c>$bottommaterial</c>), or -1 when the room has none.</param>
+/// <param name="Contents">The contents of the room's water leaf against the plug, which the doorway's water leaf takes.</param>
+/// <param name="Fluid">The room's fluid the water against the plug is part of, which the doorway's convex joins; -1 without collision.</param>
+/// <param name="Material">The declared material.</param>
+internal sealed record RoomWaterDoor(float Level, int Record, int TopFace, int BottomFace, int Contents, int Fluid, string Material);
+
+/// <summary>
 /// A room's water as the link carries it: the room's leaf water data
 /// counted, its fluids' convexes and its water overlays turned for each
 /// quarter turn (the rooms design, 4.6).
@@ -62,6 +93,13 @@ internal sealed record RoomWaterFluid(string SurfaceProp, float Damping, int Con
 /// per turn.
 /// </para>
 /// <para>
+/// <b>Water sockets.</b> Water may reach a socket's plug only where the
+/// room declares the socket's water (<see cref="RoomWaterSocket"/>); the
+/// compile is held to the declaration and what the link needs to carve the
+/// doorway's water is kept (<see cref="Doors"/>, the rooms design's "water
+/// sockets").
+/// </para>
+/// <para>
 /// <b>Required, not only a shortcut.</b> A room is held to the water rules
 /// of the pack when <c>ssmap room</c> compiles it (<see cref="PlugProblem"/>),
 /// and this section is what says it was. So a room whose compile has water
@@ -73,9 +111,11 @@ internal sealed record RoomWaterFluid(string SurfaceProp, float Damping, int Con
 /// link sections' framing (<see cref="RoomLinkSections"/>): a codec byte,
 /// the payload's decoded length, then the payload: the revision, the
 /// room's water data count, its fluids (surface property, damping as
-/// float bits, contents, surface normal and distance), its water overlay
-/// count, then the turn count, 1 or 4, and per turn every fluid's convexes
-/// and every water overlay's pose. The tag is one an older build skips, and
+/// float bits, contents, surface normal and distance), its sockets (per
+/// socket a flag, and for a water socket its <see cref="RoomWaterDoor"/>:
+/// level, record, surface faces, contents, fluid and material), its water
+/// overlay count, then the turn count, 1 or 4, and per turn every fluid's
+/// convexes and every water overlay's pose. The tag is one an older build skips, and
 /// such a build refuses a room with water by its lumps, so the pack's
 /// format version is unchanged.
 /// </para>
@@ -100,14 +140,25 @@ internal sealed class RoomWater
     private readonly RoomLinkSolid[][] _fluidLedges;
     private readonly RoomOverlayPose[][] _overlays;
 
-    private RoomWater(int dataCount, RoomWaterFluid[] fluids, RoomLinkSolid[][] fluidLedges, RoomOverlayPose[][] overlays, BspData? bsp)
+    private RoomWater(int dataCount, RoomWaterFluid[] fluids, RoomLinkSolid[][] fluidLedges, RoomOverlayPose[][] overlays, RoomWaterDoor?[] doors, BspData? bsp)
     {
         DataCount = dataCount;
         Fluids = fluids;
         _fluidLedges = fluidLedges;
         _overlays = overlays;
+        Doors = doors;
         _bsp = bsp;
     }
+
+    /// <summary>
+    /// Per socket of the room, in the definition's order, its water
+    /// (<see cref="RoomWaterDoor"/>), or null for a dry socket: what the
+    /// link carves a jointed water socket's doorway from.
+    /// </summary>
+    public IReadOnlyList<RoomWaterDoor?> Doors { get; }
+
+    /// <summary>The water level of a socket of the room, or null when the socket is dry.</summary>
+    public float? LevelAt(int socket) => Doors[socket]?.Level;
 
     /// <summary>How many leaf water data records the room's compile wrote.</summary>
     public int DataCount { get; }
@@ -157,7 +208,7 @@ internal sealed class RoomWater
     /// pack written with a rotation count of 1 reads as, for the facts that
     /// hold the two storages to the same linked bytes.
     /// </summary>
-    internal RoomWater WithTurnZeroOnly() => new(DataCount, [.. Fluids], [_fluidLedges[0]], [_overlays[0]], _bsp);
+    internal RoomWater WithTurnZeroOnly() => new(DataCount, [.. Fluids], [_fluidLedges[0]], [_overlays[0]], [.. Doors], _bsp);
 
     /// <summary>Whether a room's compile has anything this describes: water data, a water leaf, a fluid or a water overlay.</summary>
     public static bool HasWater(BspData bsp)
@@ -182,26 +233,50 @@ internal sealed class RoomWater
     /// <summary>
     /// A compiled room's water for the link, or null when its compile has
     /// none (<see cref="HasWater"/>): the records counted and checked, the
-    /// fluids read from its collision, and the convexes and water overlays
-    /// turned four ways.
+    /// fluids read from its collision, the convexes and water overlays turned
+    /// four ways, and each water socket the room declares held to what the
+    /// compile holds against its plug (<see cref="Door"/>) and described for
+    /// the link.
     /// </summary>
-    /// <param name="room">The room's name, for messages.</param>
+    /// <param name="definition">The room: its name, cell and sockets.</param>
     /// <param name="bsp">The room's compiled BSP.</param>
-    /// <returns>The water, bound to <paramref name="bsp"/>; or null.</returns>
+    /// <param name="declared">The water sockets the room declares, by socket name.</param>
+    /// <param name="originalName">A texdata name's material as the author named it (vbsp's patch chain undone).</param>
+    /// <returns>The water, bound to <paramref name="bsp"/>; or null for a room without water.</returns>
+    /// <exception cref="RoomLintException">A declared water socket does not hold the water it declares.</exception>
     /// <exception cref="LinkException">The lumps are not ones vbsp writes (<see cref="Check"/>, <see cref="WaterOverlays"/>), or the collision does not read.</exception>
-    public static RoomWater? Build(string room, BspData bsp)
+    public static RoomWater? Build(
+        RoomDefinition definition, BspData bsp, IReadOnlyDictionary<string, RoomWaterSocket> declared, Func<string, string> originalName)
     {
-        ArgumentNullException.ThrowIfNull(room);
+        ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(bsp);
+        ArgumentNullException.ThrowIfNull(declared);
+        ArgumentNullException.ThrowIfNull(originalName);
+        RoomWaterDoor?[] doors = new RoomWaterDoor?[definition.Sockets.Count];
+        List<(RoomWaterFluid Fluid, byte[] Blob)>? fluids = null;
+        for (int s = 0; s < doors.Length; s++)
+        {
+            if (declared.TryGetValue(definition.Sockets[s].Name, out RoomWaterSocket? water))
+            {
+                fluids ??= bsp[BspLump.PhysCollide].Length == 0 ? [] : LevelLinker.ReadRoomFluids(bsp, definition.Name);
+                doors[s] = Door(definition, definition.Sockets[s], water, bsp, originalName, fluids);
+            }
+        }
+
+        return Build(definition.Name, bsp, doors, fluids);
+    }
+
+    private static RoomWater? Build(string room, BspData bsp, RoomWaterDoor?[] doors, List<(RoomWaterFluid Fluid, byte[] Blob)>? read)
+    {
         if (!HasWater(bsp))
         {
             return null;
         }
 
         int dataCount = Check(room, bsp);
-        List<(RoomWaterFluid Fluid, byte[] Blob)> fluids = bsp[BspLump.PhysCollide].Length == 0
+        List<(RoomWaterFluid Fluid, byte[] Blob)> fluids = read ?? (bsp[BspLump.PhysCollide].Length == 0
             ? []
-            : LevelLinker.ReadRoomFluids(bsp, room);
+            : LevelLinker.ReadRoomFluids(bsp, room));
         ReadOnlySpan<DWaterOverlay> overlays = WaterOverlays(room, bsp);
 
         RoomLinkSolid[][] ledges = new RoomLinkSolid[4][];
@@ -228,7 +303,7 @@ internal sealed class RoomWater
             }
         }
 
-        return new RoomWater(dataCount, [.. fluids.Select(f => f.Fluid)], ledges, poses, bsp);
+        return new RoomWater(dataCount, [.. fluids.Select(f => f.Fluid)], ledges, poses, doors, bsp);
     }
 
     /// <summary>A water overlay record's pose in the room's own frame.</summary>
@@ -321,6 +396,22 @@ internal sealed class RoomWater
             w.Int(BitConverter.SingleToInt32Bits(fluid.Dist));
         }
 
+        w.Int(Doors.Count);
+        foreach (RoomWaterDoor? door in Doors)
+        {
+            w.Byte(door is null ? (byte)0 : (byte)1);
+            if (door is not null)
+            {
+                w.Int(BitConverter.SingleToInt32Bits(door.Level));
+                w.Int(door.Record);
+                w.Int(door.TopFace);
+                w.Int(door.BottomFace);
+                w.Int(door.Contents);
+                w.Int(door.Fluid);
+                w.String(door.Material);
+            }
+        }
+
         w.Int(OverlayCount);
         w.Int(_overlays.Length);
         for (int t = 0; t < _overlays.Length; t++)
@@ -377,6 +468,31 @@ internal sealed class RoomWater
             fluids[f] = new RoomWaterFluid(prop, damping, contents, normal, dist);
         }
 
+        int faces = BspStructView.Count<DFace>(bsp[BspLump.Faces]);
+        RoomWaterDoor?[] doors = new RoomWaterDoor?[r.Count("sockets")];
+        for (int s = 0; s < doors.Length; s++)
+        {
+            if (!r.Flag())
+            {
+                continue;
+            }
+
+            float level = BitConverter.Int32BitsToSingle(r.Int());
+            int record = r.Int();
+            int top = r.Int();
+            int bottom = r.Int();
+            int contents = r.Int();
+            int fluid = r.Int();
+            string material = r.String();
+            if ((uint)record >= (uint)lump || top < -1 || top >= faces || bottom < -1 || bottom >= faces
+                || fluid < -1 || fluid >= fluids.Length || !float.IsFinite(level))
+            {
+                throw r.Mismatch($"socket {s}'s water naming what the room does not have");
+            }
+
+            doors[s] = new RoomWaterDoor(level, record, top, bottom, contents, fluid, material);
+        }
+
         int overlays = BspStructView.Count<DWaterOverlay>(bsp[BspLump.WaterOverlays]);
         int count = r.Int();
         if (count != overlays)
@@ -405,7 +521,7 @@ internal sealed class RoomWater
         }
 
         r.End();
-        return new RoomWater(dataCount, fluids, ledges, poses, bsp);
+        return new RoomWater(dataCount, fluids, ledges, poses, doors, bsp);
     }
 
     /// <summary>
@@ -415,6 +531,11 @@ internal sealed class RoomWater
     /// </summary>
     /// <param name="definition">The room: its name, cell and sockets.</param>
     /// <param name="map">The room's map as the loader read it, which knows each brush's contents from its materials.</param>
+    /// <param name="declared">
+    /// The water sockets the room declares (<see cref="RoomWaterSocket"/>),
+    /// by socket name: water may reach those plugs, and is held to the
+    /// declarations once compiled (<see cref="Door"/>).
+    /// </param>
     /// <returns>The refusal's text, or null.</returns>
     /// <remarks>
     /// <para>
@@ -436,13 +557,19 @@ internal sealed class RoomWater
     /// the socket furniture rule's.
     /// </para>
     /// </remarks>
-    public static string? PlugProblem(RoomDefinition definition, MapFile map)
+    public static string? PlugProblem(RoomDefinition definition, MapFile map, IReadOnlyDictionary<string, RoomWaterSocket> declared)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(map);
+        ArgumentNullException.ThrowIfNull(declared);
         const int waterContents = (int)(BrushContents.Water | BrushContents.Slime);
         foreach (RoomSocket socket in definition.Sockets)
         {
+            if (declared.ContainsKey(socket.Name))
+            {
+                continue;
+            }
+
             Box plug = RoomLinter.SealBox(definition, socket, definition.CellSize);
             foreach (MapBrush brush in map.Brushes)
             {
@@ -461,6 +588,247 @@ internal sealed class RoomWater
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// How far a water socket's doorway is sampled from its plug's inner
+    /// face, into the room: half a unit, clear of any whole-unit plane.
+    /// </summary>
+    private const float SampleInset = 0.5f;
+
+    /// <summary>
+    /// A declared water socket held to what the room's compile holds against
+    /// its plug, and described for the link: the room's world, sampled a
+    /// half unit inside the plug's inner face at every half unit of the
+    /// door's width and height (and a quarter unit either side of the
+    /// level), is water of one record below the level and open air above it
+    /// (the water fills the doorway to that height and no higher); the
+    /// record's surface is at the level and of the declared material, which
+    /// vbsp does not light (the doorway's surface the link adds has no
+    /// lightmap); and, below a level under the door's top, the room has a
+    /// face of that surface at the level, seen from above, whose texinfo and
+    /// plane the doorway's surface takes.
+    /// </summary>
+    /// <exception cref="RoomLintException">The compile does not hold what the socket declares.</exception>
+    private static RoomWaterDoor Door(
+        RoomDefinition definition,
+        RoomSocket socket,
+        RoomWaterSocket declared,
+        BspData bsp,
+        Func<string, string> originalName,
+        List<(RoomWaterFluid Fluid, byte[] Blob)> fluids)
+    {
+        string room = definition.Name;
+        Box plug = RoomLinter.SealBox(definition, socket, definition.CellSize);
+        int axis = socket.Facing is RoomFacing.PositiveX or RoomFacing.NegativeX ? 0 : 1;
+        int across = 1 - axis;
+        bool positive = socket.Facing is RoomFacing.PositiveX or RoomFacing.PositiveY;
+        float inside = positive ? Component(plug.Mins, axis) - SampleInset : Component(plug.Maxs, axis) + SampleInset;
+        float level = declared.Level;
+        string where = string.Create(CultureInfo.InvariantCulture, $"room {room}: socket \"{socket.Name}\" declares water at {level:0.###}");
+
+        List<float> heights = [];
+        for (float z = plug.Mins.Z + 0.5f; z < plug.Maxs.Z; z += 0.5f)
+        {
+            heights.Add(z);
+        }
+
+        foreach (float z in (ReadOnlySpan<float>)[level - 0.25f, level + 0.25f])
+        {
+            if (z > plug.Mins.Z && z < plug.Maxs.Z)
+            {
+                heights.Add(z);
+            }
+        }
+
+        int record = -1;
+        int contents = 0;
+        ReadOnlySpan<DLeaf> leafs = BspStructView.As<DLeaf>(bsp[BspLump.Leafs]);
+        for (float u = Component(plug.Mins, across) + 0.5f; u < Component(plug.Maxs, across); u += 0.5f)
+        {
+            foreach (float z in heights)
+            {
+                if (z == level)
+                {
+                    continue;
+                }
+
+                Vec3 point = axis == 0 ? new Vec3(inside, u, z) : new Vec3(u, inside, z);
+                DLeaf leaf = leafs[LeafAt(bsp, point)];
+                bool water = (leaf.Contents & (int)(BrushContents.Water | BrushContents.Slime)) != 0 && leaf.LeafWaterDataId >= 0;
+                bool solid = (leaf.Contents & (int)BrushContents.Solid) != 0;
+                if (water != (z < level) || solid)
+                {
+                    throw new RoomLintException(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{where}, but ({point.X:0.###} {point.Y:0.###} {point.Z:0.###}) against its plug holds {(solid ? "solid" : water ? "water" : "air")};")
+                        + " the water must fill the doorway to that height and no higher.");
+                }
+
+                if (!water)
+                {
+                    continue;
+                }
+
+                if (record >= 0 && leaf.LeafWaterDataId != record)
+                {
+                    throw new RoomLintException(
+                        $"room {room}: socket \"{socket.Name}\" meets two bodies of water; a water socket's doorway meets one.");
+                }
+
+                record = leaf.LeafWaterDataId;
+                contents = leaf.Contents;
+            }
+        }
+
+        // A doorway wholly under water (the level at or above its top) has
+        // no surface of its own: the room's water may stand higher, or fill
+        // the room to its ceiling, where vbsp records no surface at all (its
+        // largest coordinate).
+        DLeafWaterData data = BspStructView.As<DLeafWaterData>(bsp[BspLump.LeafWaterData])[record];
+        bool flooded = level >= plug.Maxs.Z;
+        if (flooded ? data.SurfaceZ < plug.Maxs.Z : data.SurfaceZ != level)
+        {
+            throw new RoomLintException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{where}, but the water against its plug has its surface at {data.SurfaceZ:0.###}."));
+        }
+
+        string material = originalName(TexInfoMaterial(bsp, data.SurfaceTexInfoId));
+        if (!string.Equals(material, declared.Material, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new RoomLintException(
+                $"room {room}: socket \"{socket.Name}\" declares {declared.Material}, but the water against its plug is {material}.");
+        }
+
+        TexInfo surface = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo])[data.SurfaceTexInfoId];
+        if ((surface.Flags & (int)SurfaceFlags.NoLight) == 0)
+        {
+            throw new RoomLintException(
+                $"room {room}: socket \"{socket.Name}\"'s water {material} is lit (%compileKeepLight);"
+                + " the surface the link adds in a doorway has no lightmap, so a water socket's water is unlit.");
+        }
+
+        (int top, int bottom) = SurfaceFaces(bsp, record, level);
+        if (level < plug.Maxs.Z && top < 0)
+        {
+            throw new RoomLintException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{where}, but the room has no face of that surface at its level for the doorway's surface to follow."));
+        }
+
+        int fluid = -1;
+        for (int f = 0; f < fluids.Count && fluid < 0; f++)
+        {
+            if (Meets(FluidBox(fluids[f].Blob), plug))
+            {
+                fluid = f;
+            }
+        }
+
+        return new RoomWaterDoor(level, record, level < plug.Maxs.Z ? top : -1, level < plug.Maxs.Z ? bottom : -1, contents, fluid, declared.Material);
+    }
+
+    /// <summary>
+    /// The first face (in face order) of a water record's surface at a
+    /// height seen from above, and the first seen from below (its
+    /// underside, drawn with the <c>$bottommaterial</c>); -1 for none.
+    /// </summary>
+    /// <remarks>
+    /// A face is of the surface when it names the record's fog volume and
+    /// every vertex is at the height; which way it is seen from is the way
+    /// its winding faces, which is what the engine draws it by.
+    /// </remarks>
+    internal static (int Top, int Bottom) SurfaceFaces(BspData bsp, int record, float level)
+    {
+        ReadOnlySpan<DFace> faces = BspStructView.As<DFace>(bsp[BspLump.Faces]);
+        int top = -1, bottom = -1;
+        for (int f = 0; f < faces.Length && (top < 0 || bottom < 0); f++)
+        {
+            if (faces[f].SurfaceFogVolumeId != record)
+            {
+                continue;
+            }
+
+            Vec3[] corners = FaceCorners(bsp, faces[f]);
+            if (corners.Length < 3 || corners.Any(c => c.Z != level))
+            {
+                continue;
+            }
+
+            float up = Vec3.Cross(corners[1] - corners[0], corners[2] - corners[0]).Z;
+            if (up < 0 && top < 0)
+            {
+                top = f;
+            }
+            else if (up > 0 && bottom < 0)
+            {
+                bottom = f;
+            }
+        }
+
+        return (top, bottom);
+    }
+
+    /// <summary>A face's vertices in its winding order.</summary>
+    internal static Vec3[] FaceCorners(BspData bsp, DFace face)
+    {
+        ReadOnlySpan<int> surfEdges = BspStructView.As<int>(bsp[BspLump.SurfEdges]);
+        ReadOnlySpan<DEdge> edges = BspStructView.As<DEdge>(bsp[BspLump.Edges]);
+        ReadOnlySpan<Vec3> vertices = BspStructView.As<Vec3>(bsp[BspLump.Vertexes]);
+        Vec3[] corners = new Vec3[face.NumEdges];
+        for (int e = 0; e < face.NumEdges; e++)
+        {
+            int edge = surfEdges[face.FirstEdge + e];
+            corners[e] = vertices[edge >= 0 ? edges[edge].V[0] : edges[-edge].V[1]];
+        }
+
+        return corners;
+    }
+
+    /// <summary>The leaf of a map's world that holds a point: the tree walked from model 0's head.</summary>
+    internal static int LeafAt(BspData bsp, Vec3 point)
+    {
+        ReadOnlySpan<DNode> nodes = BspStructView.As<DNode>(bsp[BspLump.Nodes]);
+        ReadOnlySpan<DPlane> planes = BspStructView.As<DPlane>(bsp[BspLump.Planes]);
+        int node = BspStructView.As<DModel>(bsp[BspLump.Models])[0].HeadNode;
+        while (node >= 0)
+        {
+            DNode n = nodes[node];
+            DPlane plane = planes[n.PlaneNum];
+            node = Vec3.Dot(plane.Normal, point) - plane.Dist >= 0 ? n.Children[0] : n.Children[1];
+        }
+
+        return -1 - node;
+    }
+
+    /// <summary>A texinfo's material name as its texdata string holds it.</summary>
+    internal static string TexInfoMaterial(BspData bsp, int texInfo)
+    {
+        TexInfo info = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo])[texInfo];
+        DTexData data = BspStructView.As<DTexData>(bsp[BspLump.TexData])[info.TexData];
+        int at = BspStructView.As<int>(bsp[BspLump.TexDataStringTable])[data.NameStringTableId];
+        ReadOnlySpan<byte> strings = bsp[BspLump.TexDataStringData].Data.Span[at..];
+        int end = strings.IndexOf((byte)0);
+        return System.Text.Encoding.Latin1.GetString(end < 0 ? strings : strings[..end]);
+    }
+
+    /// <summary>The box around a fluid's convexes' points, in map units, room-local.</summary>
+    private static Box FluidBox(byte[] blob)
+    {
+        Vec3 min = new(float.MaxValue, float.MaxValue, float.MaxValue);
+        Vec3 max = new(float.MinValue, float.MinValue, float.MinValue);
+        foreach (IvpCompactLedge ledge in IvpCollideQueries.Leaves(IvpCollideQueries.Surface(blob)))
+        {
+            for (int p = 0; p < ledge.PointCount; p++)
+            {
+                (float x, float y, float z) = IvpCollideQueries.HlPoint(ledge, p);
+                min = new Vec3(Math.Min(min.X, x), Math.Min(min.Y, y), Math.Min(min.Z, z));
+                max = new Vec3(Math.Max(max.X, x), Math.Max(max.Y, y), Math.Max(max.Z, z));
+            }
+        }
+
+        return new Box(min, max);
     }
 
     /// <summary>

@@ -84,6 +84,45 @@ public sealed class RoomsWaterCommandsTests
         Assert.Equal(4, RoomWaterHarness.WaterOverlays(linked).Length);
     }
 
+    /// <summary>
+    /// Water through a door through the CLI: <c>ssmap room</c> reads the
+    /// library's <c>water_&lt;wall&gt;</c> keys and holds each room to them,
+    /// <c>ssmap link</c> joins the two rooms' water through the door from
+    /// the pack alone, <c>ssmap check</c> finds no error, and the flattened
+    /// level's compile holds the same water at every point, in one record.
+    /// </summary>
+    [Fact]
+    public async Task ALevelWithAWaterDoorLinksChecksAndMatchesItsFlatten()
+    {
+        InMemoryFileSystem fs = Game(RoomWaterHarness.SocketLibrary());
+        fs.AddText(Rooted("/levels/door.yaml"), RoomHarness.LevelText("../game/maps/rooms.vmf", "other@90", "hub@90"));
+
+        using StringWriter room = new();
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-nolight", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], room);
+        Assert.True(exit == Program.ExitSuccess, room.ToString());
+
+        using StringWriter link = new();
+        exit = await RoomCommands.RunLinkAsync(fs, ["/levels/door.yaml", "-rooms", "/rooms.roompack", "-out", "/out/door.bsp", "-no-nav"], link);
+        Assert.True(exit == Program.ExitSuccess, link.ToString());
+        BspData linked = await LoadAsync(fs, "/out/door.bsp");
+
+        using StringWriter check = new();
+        await CheckCommand.RunAsync(fs, [Rooted("/out/door.bsp")], check);
+        Assert.Contains("door.bsp: 0 error(s)", check.ToString(), StringComparison.Ordinal);
+
+        using StringWriter flatten = new();
+        exit = await RoomCommands.RunLinkAsync(fs, ["/levels/door.yaml", "--flatten", "-out", "/out/door.vmf"], flatten);
+        Assert.True(exit == Program.ExitSuccess, flatten.ToString());
+        VmfDocument vmf = await VmfDocument.ParseAsync(fs.GetBytes(VPath.Create(Rooted("/out/door.vmf")))!);
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+        BspData flat = (await RoomHarness.CompileAsync(vmf, await RoomWaterHarness.ContextAsync("door", cooker: cooker))).Bsp!;
+
+        Assert.Equal(LevelLinkerWaterTests.Points(flat, 1, 2), LevelLinkerWaterTests.Points(linked, 1, 2));
+        Assert.Equal(["64 16 unit/water_cheap"], LevelLinkerWaterTests.Records(linked));
+        Assert.Equal(LevelLinkerWaterTests.Records(flat), LevelLinkerWaterTests.Records(linked));
+        Assert.Equal("water at 64 of unit/water_cheap", RoomWaterHarness.At(linked, new Vec3(128, 256, 40)));
+    }
+
     /// <summary>A game holding the harness's materials, the waters and the overlay's, and the library.</summary>
     private static InMemoryFileSystem Game(VmfDocument library)
     {

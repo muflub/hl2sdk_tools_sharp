@@ -7,6 +7,7 @@
 
 using System.Globalization;
 
+using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
@@ -218,6 +219,13 @@ public static class LevelFlattener
 
         RoomLinter.CheckReachable(layout, name => byName[name].Definition);
 
+        // Water through a door, by the link's rule, from the libraries'
+        // declarations (the link reads the same levels from the rooms'
+        // compiles, which the room compile holds to the declarations).
+        float? WaterAt(int placement, string socket) =>
+            byName[layout.Rooms[placement].Placement.Room].WaterSockets.TryGetValue(socket, out RoomWaterSocket? water) ? water.Level : null;
+        LevelWaterJoints.Check(layout, name => byName[name].Definition, WaterAt);
+
         // The level's transitions and spawn, by the link's rule, from the
         // same transition data the pack stores (read here from the library,
         // by the same function, once per room).
@@ -308,6 +316,17 @@ public static class LevelFlattener
                 VmfChunk moved = VmfPlacement.MoveSolid(solid, turn);
                 placed.AddSides(moved);
                 flatWorld.Children.Add(moved);
+            }
+
+            // A joined water socket's doorway is filled with its water where
+            // its plug was (DoorwayWater), as the link carves it.
+            foreach ((string socket, _) in instance.Joints)
+            {
+                if (room.WaterSockets.TryGetValue(socket, out RoomWaterSocket? water))
+                {
+                    RoomSocket found = room.Definition.Sockets.First(s => s.Name == socket);
+                    flatWorld.Children.Add(DoorwayWater(RoomLinter.SealBox(room.Definition, found, room.Definition.CellSize), water, turn));
+                }
             }
 
             // Points of interest are not entities of the map: the room
@@ -481,6 +500,30 @@ public static class LevelFlattener
             Warnings = [.. libraryWarnings, .. resolution?.Warnings ?? []],
             Notes = resolution?.Verbose ?? [],
         };
+    }
+
+    /// <summary>
+    /// The water brush that fills a joined water socket's doorway in the
+    /// flattened level: the socket's plug box up to the water's level (the
+    /// whole box when the doorway is under water), every side the declared
+    /// material, moved with the room.
+    /// </summary>
+    /// <remarks>
+    /// The link carves the same box out of the plug's solid leaves and makes
+    /// its lower part water of the facing room's record, with a surface and a
+    /// fluid (the rooms design, 4.6); in the flattened level vbsp makes them
+    /// from this brush, which meets the room's own water through the plug's
+    /// inner face and the other room's doorway brush at the cell face. The
+    /// sides facing the jambs, the sill and the waters meet solid or water
+    /// and draw nothing; the top is the doorway's surface.
+    /// </remarks>
+    private static VmfChunk DoorwayWater(Box plug, RoomWaterSocket water, QuarterTurn turn)
+    {
+        Vec3 top = new(plug.Maxs.X, plug.Maxs.Y, Math.Min(plug.Maxs.Z, water.Level));
+        Vec3 a = turn.Apply(plug.Mins), b = turn.Apply(top);
+        Vec3 mins = new(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Min(a.Z, b.Z));
+        Vec3 maxs = new(Math.Max(a.X, b.X), Math.Max(a.Y, b.Y), Math.Max(a.Z, b.Z));
+        return RoomModel.Slab(water.Material, mins, maxs, 1);
     }
 
     /// <summary>
