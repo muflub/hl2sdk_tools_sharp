@@ -116,6 +116,9 @@ game/                                     test game directories with gameinfo.tx
 maps/ss_sandbox.vmf                       the generated sandbox map
 maps/sdk_ctf_2fort.vmf                    Valve's SDK 2fort, a full-size map for perf runs
 samples/rooms-3x3/                        the rooms sample: a five-room library and 3x3 level files
+samples/rooms-transit/                    rooms sample: transition rooms and a three-level run
+samples/rooms-features/                   rooms sample: tall room, displacements, water sockets, detail props, map markers
+samples/rooms-multi/                      rooms sample: two libraries, one sun and skybox, a combined pack, -large levels
 ```
 
 ### `SourceSharp.MapFormats`
