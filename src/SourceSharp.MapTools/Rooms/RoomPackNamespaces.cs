@@ -30,7 +30,7 @@ namespace SourceSharp.MapTools.Rooms;
 /// </param>
 /// <param name="VmfSha256">The SHA-256 of the library VMF's bytes, as 64 lower-case hex digits.</param>
 /// <param name="SingletonsSha256">
-/// The SHA-256 of the first library's singletons the namespace was compiled
+/// The SHA-256 of the singletons the namespace was compiled
 /// under (<see cref="RoomPackNamespaces.SingletonDigest"/>), as 64 lower-case
 /// hex digits: the same for every namespace of one pack.
 /// </param>
@@ -67,8 +67,8 @@ public sealed record RoomPackNamespace(string Key, string Source, string VmfSha2
 /// <c>key.room</c>, grouped by namespace in library order. A build that does
 /// not know the tag skips it (a reader looks sections up by tag) and reads
 /// the rooms under their qualified names, which are legal room names, with
-/// the pack's <c>LENT</c> and <c>LOPT</c>, which are the first library's and
-/// so the level's: it cannot read a level file that names several libraries
+/// the pack's <c>LENT</c> and <c>LOPT</c>, which are the level's
+/// singletons (D29): it cannot read a level file that names several libraries
 /// (an unknown key), so nothing links silently wrong, and the pack version
 /// does not move.
 /// </para>
@@ -88,9 +88,9 @@ public sealed record RoomPackNamespace(string Key, string Source, string VmfSha2
 /// <b>Why the two digests.</b> <c>ssmap roompack -only</c> copies the
 /// namespaces it does not rebuild byte for byte from the existing pack.
 /// That is right only if each copied library is what it was (its VMF's
-/// digest) and was compiled under what the first library now supplies (the
+/// digest) and was compiled under what the level's singletons now are (the
 /// singleton digest: every namespace is compiled with the first library's
-/// worldspawn and lit under its sun, D26). Either differing makes the copy
+/// worldspawn and lit under the level's sun, D26 and D29). Either differing makes the copy
 /// stale, and <c>-only</c> refuses it rather than write a pack a full build
 /// would not.
 /// </para>
@@ -289,11 +289,17 @@ public static class RoomPackNamespaces
 
     /// <summary>
     /// The digest of the singletons a combined pack compiles every namespace
-    /// under: the first library's worldspawn as each room carries it, and its
-    /// library-wide entities (the sun among them).
+    /// under: the first library's worldspawn as each room carries it, the
+    /// level's library-wide entities (the sun among them; the first
+    /// library's, its gaps filled from the later ones, D29) and, when a
+    /// later library supplies it, the level's skybox room.
     /// </summary>
     /// <param name="world">The worldspawn's keys as a room carries them (<see cref="RoomLibraryVmf.RoomWorldKeys"/>), in order.</param>
-    /// <param name="libraryEntities">The first library's library-wide entities, in library order.</param>
+    /// <param name="libraryEntities">The level's library-wide entities, in the pack's order (<see cref="LevelLibraries.Singletons"/>).</param>
+    /// <param name="laterSkybox">
+    /// The level's skybox room, qualified, when it is not the first
+    /// library's (D29), else null.
+    /// </param>
     /// <returns>64 lower-case hex digits.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -306,12 +312,20 @@ public static class RoomPackNamespaces
     /// library's entity reserve leaves the other namespaces current.
     /// </para>
     /// <para>
+    /// <b>A skybox a later library supplies</b> is folded, because it is
+    /// packed with that library's rooms: <c>-only</c> copying that namespace
+    /// whole is right only while the level's skybox is still its (the first
+    /// library gaining a skybox of its own takes the room out of the
+    /// namespace). The first library's skybox is not folded, as before, so
+    /// a pack whose first library has every singleton keeps its digest.
+    /// </para>
+    /// <para>
     /// Every part is length-prefixed, so no two lists of keys and entities
     /// fold alike. The entities fold as their <c>LENT</c> section's bytes,
     /// which are a function of them.
     /// </para>
     /// </remarks>
-    public static string SingletonDigest(IReadOnlyList<KeyValuePair<string, string>> world, IReadOnlyList<VmfChunk> libraryEntities)
+    public static string SingletonDigest(IReadOnlyList<KeyValuePair<string, string>> world, IReadOnlyList<VmfChunk> libraryEntities, string? laterSkybox = null)
     {
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(libraryEntities);
@@ -333,6 +347,12 @@ public static class RoomPackNamespaces
         }
 
         Part(libraryEntities.Count == 0 ? [] : RoomLibraryEntities.ToSection(libraryEntities).Bytes.Span);
+        if (laterSkybox is not null)
+        {
+            Part("skybox"u8);
+            Part(Encoding.UTF8.GetBytes(laterSkybox));
+        }
+
         return Convert.ToHexStringLower(sha.GetHashAndReset());
     }
 
