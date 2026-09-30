@@ -238,31 +238,6 @@ public static partial class RoomCommands
     }
 
     /// <summary>
-    /// Whether the pack at a path has a namespaces section; false when there
-    /// is no pack, or its index does not read (the link then reports that as
-    /// it always did). A damaged section still counts, so the link that reads
-    /// it names the damage rather than looking for bare names.
-    /// </summary>
-    private static async Task<bool> HasNamespacesAsync(IFileSystem disk, VPath path, CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (!await disk.ExistsAsync(path, cancellationToken).ConfigureAwait(false))
-            {
-                return false;
-            }
-
-            await using Stream stream = await disk.OpenReadAsync(path, cancellationToken).ConfigureAwait(false);
-            RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
-            return index.LibrarySections.Any(s => s.Tag == RoomPackNamespaces.SectionTag);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or LinkException)
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
     /// A pack that cannot give a key its library: a combined pack without
     /// that namespace, or a plain pack given to every key of a level of
     /// several. The message is the whole line after the verb.

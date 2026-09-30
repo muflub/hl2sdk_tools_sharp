@@ -157,8 +157,8 @@ public sealed class RoomPackCommandsTests
         Assert.True(exit == Program.ExitSuccess, log);
         Assert.Equal(map, Bytes(fs, "/out/keyed.bsp"));
 
-        // caves' name key reached its rooms: the marker names the lamp of
-        // its own cell, as the naming rule rewrites it.
+        // The marker names the lamp of its own cell, as the naming rule
+        // rewrites it, whichever pack the room came from.
         List<BspEntity> entities = EntityLump.Parse((await BspFile.LoadAsync(new MemoryStream(map)))[BspLump.Entities]);
         BspEntity marker = Assert.Single(entities, e => e.ClassName == "info_target" && e.Get("friend") is not null);
         Assert.Contains(entities, e => e.ClassName == "light" && e.Get("targetname") == marker.Get("friend"));
@@ -364,6 +364,87 @@ public sealed class RoomPackCommandsTests
     }
 
     /// <summary>
+    /// The rest of the verb's refusals: a bad <c>-nav-codec</c>, <c>-vrad</c>
+    /// with <c>-nolight</c>, an unknown stock option, a library that cannot
+    /// be read, a navigation voxel that does not divide the first library's
+    /// cell, and a <c>-only</c> pack that is not a pack.
+    /// </summary>
+    [Fact]
+    public async Task TheVerbRefusesItsOptionsAndInputs()
+    {
+        InMemoryFileSystem fs = Game();
+        string[] both = ["-out", "/packs/x.roompack", "base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf"];
+        (int exit, string log) = await PackAsync(fs, [.. both, "-nav-codec", "zip"]);
+        Assert.Equal(Program.ExitUsage, exit);
+        Assert.Contains("ssmap roompack: -nav-codec \"zip\" is not none, deflate[:0-9] or brotli[:0-11]", log, StringComparison.Ordinal);
+        (exit, log) = await PackAsync(fs, [.. both, "-nolight", "-vrad", "-both"]);
+        Assert.Equal(Program.ExitUsage, exit);
+        Assert.Contains("ssmap roompack: -vrad sets how the rooms are lit, and -nolight lights none", log, StringComparison.Ordinal);
+        (exit, log) = await PackAsync(fs, [.. both, "-bogus"]);
+        Assert.Equal(Program.ExitUsage, exit);
+        Assert.Contains("usage: ssmap roompack", log, StringComparison.Ordinal);
+
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/x.roompack", "base=/game/maps/base.vmf", "caves=/game/maps/nowhere.vmf"]);
+        Assert.Equal(1, exit);
+        Assert.Contains($"ssmap roompack: {Path.GetFullPath("/game/maps/nowhere.vmf")}: ", log, StringComparison.Ordinal);
+
+        VmfDocument voxel = Base();
+        voxel.GetChunk("world")!.AddKey(SourceSharp.MapTools.Nav.NavSettings.VoxelKey, "7");
+        fs.AddFile(Rooted("/game/maps/voxel.vmf"), voxel.ToBytes());
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/x.roompack", "base=/game/maps/voxel.vmf", "-nolight"]);
+        Assert.Equal(1, exit);
+        Assert.Contains("ssmap roompack: the nav voxel (nav_voxel_size 7) does not divide the 256-unit cell into whole voxels", log, StringComparison.Ordinal);
+
+        fs.AddText(Rooted("/packs/x.roompack"), "not a pack");
+        (exit, log) = await PackAsync(fs, [.. both, "-only", "caves"]);
+        Assert.Equal(1, exit);
+        Assert.Contains($"ssmap roompack: {Path.GetFullPath("/packs/x.roompack")}: not a room pack", log, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The first library's skybox room packs under its qualified name, last
+    /// of its rooms, and the pack names it so: a level linked from the
+    /// combined pack places it below the grid as the plain pack's link
+    /// does, the same map; the later library's skybox is not packed.
+    /// </summary>
+    [Fact]
+    public async Task TheFirstLibrarysSkyboxLinksFromTheCombinedPack()
+    {
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/base.vmf"), RoomSkyboxHarness.AddSkybox(Base()).ToBytes());
+        fs.AddFile(Rooted("/game/maps/caves.vmf"), RoomSkyboxHarness.AddSkybox(Caves()).ToBytes());
+        (int exit, string log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf", "-nolight"]);
+        Assert.True(exit == Program.ExitSuccess, log);
+        Assert.Contains("ssmap roompack: warning: library caves: its skybox room \"sky\" is dropped; the level's skybox is library base's, \"sky\".", log, StringComparison.Ordinal);
+        using (MemoryStream stream = new(Bytes(fs, "/packs/both.roompack")))
+        {
+            RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+            Assert.Equal(["base.hub", "base.other", "base.sky", "caves.hub", "caves.other"], index.Entries.Select(e => e.Name));
+            Assert.Equal("base.sky", await RoomPack.ReadLibrarySkyboxAsync(stream, index));
+        }
+
+        foreach (string key in new[] { "base", "caves" })
+        {
+            Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs, [$"/game/maps/{key}.vmf", "-nolight", "-out", $"/packs/{key}.roompack"])).Exit);
+        }
+
+        fs.AddText(Rooted("/game/levels/multi.yaml"), MultiLevel);
+        (exit, log) = await LinkAsync(fs, "combined", "-no-nav", "-rooms", "/packs/both.roompack");
+        Assert.True(exit == Program.ExitSuccess, log);
+        (exit, log) = await LinkAsync(fs, "plain", "-no-nav", "-rooms", "base=/packs/base.roompack", "-rooms", "caves=/packs/caves.roompack");
+        Assert.True(exit == Program.ExitSuccess, log);
+        byte[] map = Bytes(fs, "/out/combined.bsp");
+        Assert.Equal(map, Bytes(fs, "/out/plain.bsp"));
+        Assert.Contains(EntityLump.Parse((await BspFile.LoadAsync(new MemoryStream(map)))[BspLump.Entities]), e => e.ClassName == "sky_camera");
+
+        // A level of one library lists its namespace's rooms by its stem.
+        fs.AddText(Rooted("/game/levels/one.yaml"), RoomHarness.LevelText("../maps/caves.vmf", "hub"));
+        using StringWriter list = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/levels/one.yaml", "-rooms", "/packs/both.roompack"], list));
+        Assert.Equal(2, list.ToString().Split('\n').Count(l => l.StartsWith("  entities: ", StringComparison.Ordinal)));
+    }
+
+    /// <summary>
     /// <c>-level</c> takes the libraries from a level file, in its order,
     /// and writes the pack beside it, which the level then links from; a
     /// level of one library keys it by its stem, and one whose stem is not a
@@ -464,6 +545,69 @@ public sealed class RoomPackCommandsTests
     }
 
     /// <summary>
+    /// A build that does not know the <c>NSPC</c> tag skips it and reads the
+    /// rooms under their qualified names, with the pack's own singletons: a
+    /// pack with the section taken out links the level that names those
+    /// rooms to the map the namespace gives the level that names them
+    /// within the library. A damaged section is named by the link.
+    /// </summary>
+    [Fact]
+    public async Task AnOlderReaderSkipsTheNamespaces()
+    {
+        InMemoryFileSystem fs = Game();
+        Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs, ["/game/maps/base.vmf", "-nolight", "-namespace", "base", "-out", "/ns/base.roompack"])).Exit);
+        byte[] spaced = Bytes(fs, "/ns/base.roompack");
+        RoomPackNamespace space;
+        async Task Rewrite(string path, Func<RoomPackSection, byte[], RoomPackSectionData?> library)
+        {
+            using MemoryStream stream = new(spaced);
+            RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+            IReadOnlyList<RoomPackItem> items = await RoomPack.ReadItemsAsync(stream, index, 0, index.Entries.Count);
+            List<RoomPackSectionData> sections = [];
+            foreach (RoomPackSection section in index.LibrarySections)
+            {
+                if (library(section, await RoomPack.ReadSectionAsync(stream, index, section)) is { } kept)
+                {
+                    sections.Add(kept);
+                }
+            }
+
+            using MemoryStream written = new();
+            await RoomPack.SaveAsync(sections, items, written, CancellationToken.None);
+            fs.AddFile(Rooted(path), written.ToArray());
+        }
+
+        using (MemoryStream stream = new(spaced))
+        {
+            space = Assert.Single((await RoomPack.ReadNamespacesAsync(stream, await RoomPack.ReadIndexAsync(stream)))!);
+        }
+
+        await Rewrite("/old/base.roompack", (s, b) => s.Tag == RoomPackNamespaces.SectionTag ? null : new RoomPackSectionData(s.Tag, b));
+        fs.AddText(Rooted("/game/levels/new.yaml"), RoomHarness.LevelText("../maps/base.vmf", "hub, other@90"));
+        fs.AddText(Rooted("/game/levels/old.yaml"), RoomHarness.LevelText("../maps/base.vmf", "base.hub, base.other@90"));
+        async Task<(int Exit, string Log)> Link(string level, string pack)
+        {
+            using StringWriter output = new();
+            int exit = await RoomCommands.RunLinkAsync(fs, [$"/game/levels/{level}.yaml", "-no-nav", "-rooms", pack, "-out", $"/out/{level}.bsp"], output);
+            return (exit, output.ToString());
+        }
+
+        Assert.Equal(Program.ExitSuccess, (await Link("new", "/ns/base.roompack")).Exit);
+        Assert.Equal(Program.ExitSuccess, (await Link("old", "/old/base.roompack")).Exit);
+        Assert.Equal(Bytes(fs, "/out/new.bsp"), Bytes(fs, "/out/old.bsp"));
+
+        await Rewrite(
+            "/old/base.roompack",
+            (s, b) => s.Tag == RoomPackNamespaces.SectionTag ? RoomPackNamespaces.ToSection([space with { RoomCount = 1 }]) : new RoomPackSectionData(s.Tag, b));
+        (int code, string log) = await Link("new", "/old/base.roompack");
+        Assert.Equal(1, code);
+        Assert.Contains(
+            $"ssmap link: {Path.GetFullPath("/old/base.roompack")}: the room pack's NSPC section covers 1 of the pack's 2 rooms; every room of a pack with namespaces belongs to one.",
+            log,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// <c>ssmap rooms</c> and <c>ssmap layout</c> read a library's rooms out
     /// of a combined pack by its key (a level's key, or a library VMF's
     /// stem), and refuse a pack without it with the link's text.
@@ -520,8 +664,9 @@ public sealed class RoomPackCommandsTests
     /// A game with the harness content, the lit harness's sky, and two
     /// libraries of rooms named alike: <c>base</c> (the lit fixture's hub
     /// and sunlit other) and <c>caves</c> (its own lamps, a marker naming
-    /// one through its <c>friend</c> name key), both with the same sun and
-    /// both marked in their worldspawn's <c>comment</c>.
+    /// one, and a name key of its own, <c>friend</c>, which its namespace
+    /// keeps), both with the same sun and both marked in their worldspawn's
+    /// <c>comment</c>.
     /// </summary>
     private static InMemoryFileSystem Game(VmfDocument? caves = null)
     {
