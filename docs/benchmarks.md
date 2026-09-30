@@ -32,14 +32,14 @@ the sum of the stages.
 Valve's SDK 2fort, compiled against Team Fortress 2's content. This is the
 map to compare compilers on.
 
-| toolset | vbsp | vvis | vrad | total | vs stock |
+| toolset | vbsp | vvis | vrad | total | speed vs stock |
 |---|---:|---:|---:|---:|---:|
-| stock SDK 2013 | 5.55 | 9.31 | 31.60 | 46.46 | 1.00× |
-| Tools++ | 4.82 | 2.58 | 7.81 | 15.20 | 0.33× |
-| ssmap (JIT) | 3.56 | 4.56 | 8.10 | 16.20 | 0.35× |
-| **ssmap (NativeAOT), fastest** | **1.15** | **4.34** | **5.87** | **11.34** | **0.24×** |
-| ssmap (JIT), vvis `-fastflow` | 3.90 | 7.76 | 8.18 | 19.97 | 0.43× |
-| ssmap (AOT), vvis `-fastflow` | 1.16 | 9.07 | 5.86 | 16.05 | 0.35× |
+| stock SDK 2013 | 5.55 | 9.31 | 31.60 | 46.46 | 1.00× (100%) |
+| Tools++ | 4.82 | 2.58 | 7.81 | 15.20 | 3.06× (306%) |
+| ssmap (JIT) | 3.56 | 4.56 | 8.10 | 16.20 | 2.87× (287%) |
+| **ssmap (NativeAOT), fastest** | **1.15** | **4.34** | **5.87** | **11.34** | **4.10× (410%)** |
+| ssmap (JIT), vvis `-fastflow` | 3.90 | 7.76 | 8.18 | 19.97 | 2.33× (233%) |
+| ssmap (AOT), vvis `-fastflow` | 1.16 | 9.07 | 5.86 | 16.05 | 2.89× (289%) |
 
 What each chain produced:
 
@@ -59,19 +59,19 @@ The repository's generated feature map: small, but it exercises every
 feature. It is small enough that process start-up dominates the times, so
 read it as a start-up comparison; 2fort is the one that matters.
 
-| toolset | vbsp | vvis | vrad | total | vs stock |
+| toolset | vbsp | vvis | vrad | total | speed vs stock |
 |---|---:|---:|---:|---:|---:|
-| stock SDK 2013 | 0.29 | 0.14 | 10.36 | 10.88 | 1.00× |
-| Tools++ | 0.24 | 0.05 | 8.67 | 8.96 | 0.82× |
-| ssmap (JIT) | 0.58 | 0.08 | 2.79 | 3.43 | 0.32× |
-| ssmap (NativeAOT) | 0.13 | 0.01 | 1.45 | 1.59 | 0.15× |
-| ssmap (JIT), vvis `-fastflow` | 0.72 | 0.12 | 3.30 | 4.15 | 0.38× |
-| ssmap (AOT), vvis `-fastflow` | 0.13 | 0.01 | 1.34 | 1.48 | 0.14× |
+| stock SDK 2013 | 0.29 | 0.14 | 10.36 | 10.88 | 1.00× (100%) |
+| Tools++ | 0.24 | 0.05 | 8.67 | 8.96 | 1.21× (121%) |
+| ssmap (JIT) | 0.58 | 0.08 | 2.79 | 3.43 | 3.17× (317%) |
+| ssmap (NativeAOT) | 0.13 | 0.01 | 1.45 | 1.59 | 6.84× (684%) |
+| ssmap (JIT), vvis `-fastflow` | 0.72 | 0.12 | 3.30 | 4.15 | 2.62× (262%) |
+| ssmap (AOT), vvis `-fastflow` | 0.13 | 0.01 | 1.34 | 1.48 | 7.35× (735%) |
 
 ### What the numbers say
 
-- **ssmap NativeAOT is the fastest full chain.** On 2fort it takes 0.24× of
-  stock's time and beats Tools++ (11.34 s against 15.20 s). vrad is where
+- **ssmap NativeAOT is the fastest full chain.** On 2fort it runs 4.10× (410%)
+  as fast as stock and beats Tools++ (11.34 s against 15.20 s). vrad is where
   ssmap gains most over stock, and its vbsp is the fastest of the four.
 - **vvis is the one stage Tools++ still wins** (2.58 s against 4.34 s on
   2fort). Tools++ keeps its visibility bit vectors per cluster, where stock

@@ -36,30 +36,51 @@ thread count. Every run produced a lit map.
 
 `sdk_ctf_2fort` (Valve's SDK 2fort):
 
-| toolset | vbsp | vvis | vrad | total | vs stock |
+| toolset | vbsp | vvis | vrad | total | speed vs stock |
 |---|---:|---:|---:|---:|---:|
-| stock SDK 2013 | 5.55 | 9.31 | 31.60 | 46.46 | 1.00× |
-| Tools++ | 4.82 | 2.58 | 7.81 | 15.20 | 0.33× |
-| ssmap (JIT) | 3.56 | 4.56 | 8.10 | 16.20 | 0.35× |
-| **ssmap (NativeAOT), fastest** | **1.15** | **4.34** | **5.87** | **11.34** | **0.24×** |
-| ssmap (JIT), vvis `-fastflow` | 3.90 | 7.76 | 8.18 | 19.97 | 0.43× |
-| ssmap (AOT), vvis `-fastflow` | 1.16 | 9.07 | 5.86 | 16.05 | 0.35× |
+| stock SDK 2013 | 5.55 | 9.31 | 31.60 | 46.46 | 1.00× (100%) |
+| Tools++ | 4.82 | 2.58 | 7.81 | 15.20 | 3.06× (306%) |
+| ssmap (JIT) | 3.56 | 4.56 | 8.10 | 16.20 | 2.87× (287%) |
+| **ssmap (NativeAOT), fastest** | **1.15** | **4.34** | **5.87** | **11.34** | **4.10× (410%)** |
+| ssmap (JIT), vvis `-fastflow` | 3.90 | 7.76 | 8.18 | 19.97 | 2.33× (233%) |
+| ssmap (AOT), vvis `-fastflow` | 1.16 | 9.07 | 5.86 | 16.05 | 2.89× (289%) |
 
 `ss_sandbox` (process start-up dominates a map this small; 2fort is the
 comparison that matters):
 
-| toolset | vbsp | vvis | vrad | total | vs stock |
+| toolset | vbsp | vvis | vrad | total | speed vs stock |
 |---|---:|---:|---:|---:|---:|
-| stock SDK 2013 | 0.29 | 0.14 | 10.36 | 10.88 | 1.00× |
-| Tools++ | 0.24 | 0.05 | 8.67 | 8.96 | 0.82× |
-| ssmap (JIT) | 0.58 | 0.08 | 2.79 | 3.43 | 0.32× |
-| ssmap (NativeAOT) | 0.13 | 0.01 | 1.45 | 1.59 | 0.15× |
-| ssmap (JIT), vvis `-fastflow` | 0.72 | 0.12 | 3.30 | 4.15 | 0.38× |
-| ssmap (AOT), vvis `-fastflow` | 0.13 | 0.01 | 1.34 | 1.48 | 0.14× |
+| stock SDK 2013 | 0.29 | 0.14 | 10.36 | 10.88 | 1.00× (100%) |
+| Tools++ | 0.24 | 0.05 | 8.67 | 8.96 | 1.21× (121%) |
+| ssmap (JIT) | 0.58 | 0.08 | 2.79 | 3.43 | 3.17× (317%) |
+| ssmap (NativeAOT) | 0.13 | 0.01 | 1.45 | 1.59 | 6.84× (684%) |
+| ssmap (JIT), vvis `-fastflow` | 0.72 | 0.12 | 3.30 | 4.15 | 2.62× (262%) |
+| ssmap (AOT), vvis `-fastflow` | 0.13 | 0.01 | 1.34 | 1.48 | 7.35× (735%) |
 
-On 2fort, ssmap NativeAOT compiles the full chain in 0.24× stock's time and
-beats Tools++ (11.34 s against 15.20 s); vvis is the one stage Tools++ still
-wins (2.58 s against 4.34 s).
+On 2fort, ssmap NativeAOT compiles the full chain 4.10× (410%) as fast as
+stock and beats Tools++ (11.34 s against 15.20 s); vvis is the one stage
+Tools++ still wins (2.58 s against 4.34 s).
+
+Why Tools++ is faster at vvis is our best reading of its behaviour, not
+something we have measured inside it:
+
+- **Smaller vectors.** It keeps each portal flow's visibility bits per
+  cluster rather than per portal. On 2fort that makes every vector about a
+  fifth of the size, and the portal flow does little else than AND and OR
+  those vectors, so it moves roughly a fifth of the memory. It also runs
+  those loops with AVX2.
+- **It does not compute the same answer.** On the same tree its PVS differs
+  from stock's (about 700 extra visible pairs and 226 missing), and its output
+  changes from run to run. That points to filtering that is not exact and to
+  threads sharing partial results in whatever order they finish, both of
+  which skip work an exact flow has to do.
+- **ssmap holds itself to stock's answer.** Its vvis must give stock's PVS,
+  and the same bytes at every thread count. We tried keeping the vectors per
+  cluster while staying exact: it gained only about 5% and was not
+  equivalent, so it was not merged. The remaining gap is mostly the price of
+  exactness. [`-fastflow`](#the-fast-vvis-flow--fastflown) is the opt-in
+  inexact mode, and on this 32-thread machine it is currently slower, not
+  faster ([docs/benchmarks.md](docs/benchmarks.md#notes) says why).
 
 Measured at main b6d6465 on 2026-09-29, on a Ryzen 9 9950X (16 cores,
 32 threads) under Linux, with `tools/toolchain-bench.sh` and its defaults.
