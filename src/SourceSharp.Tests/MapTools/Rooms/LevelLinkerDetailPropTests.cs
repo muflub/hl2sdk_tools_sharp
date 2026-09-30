@@ -143,7 +143,11 @@ public sealed class LevelLinkerDetailPropTests(ITestOutputHelper output)
     /// within the draw's noise; every prop on the surface it grows on, in the
     /// flattened map as in the link; and the props spread over their
     /// surface alike (each room's props, per quadrant of its grass, within
-    /// the draw's noise), at every quarter turn.
+    /// the draw's noise), at every quarter turn. The detail entities are no
+    /// draw: their records are the same bits in both maps. The noise bound
+    /// is four standard deviations of the difference of two counts plus
+    /// four (a face's triangles each lose a fraction of a prop to rounding);
+    /// the whole comparison is deterministic, since both compiles are seeded.
     /// </summary>
     [Theory]
     [MemberData(nameof(Rotations))]
@@ -187,6 +191,14 @@ public sealed class LevelLinkerDetailPropTests(ITestOutputHelper output)
         }
 
         Assert.Equal(quadrants[0].Keys.Order(StringComparer.Ordinal), quadrants[1].Keys.Order(StringComparer.Ordinal));
+
+        // A detail entity is not a draw: the flattened compile writes the
+        // moved entity's record, and the link the same record bit for bit
+        // (its pose turned as the flatten turns the entity's keys).
+        string[] EntityProps(DetailPropLump map) =>
+            [.. map.Props.Where(p => Where(layout, p.Origin)!.Contains("entity", StringComparison.Ordinal)).Select(p => Line(map, p, leaf: false, lighting: false)).Order(StringComparer.Ordinal)];
+        Assert.Equal(3, EntityProps(a).Length);
+        Assert.Equal(EntityProps(b), EntityProps(a));
         foreach ((string key, int count) in quadrants[0])
         {
             int other = quadrants[1][key];
