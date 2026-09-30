@@ -205,6 +205,80 @@ public sealed class DoorLightMathTests
         Assert.Equal(1f, DoorLightMath.Through(sun, point, facing, W, H, D, DoorLightMath.AllCells), 5);
     }
 
+    /// <summary>
+    /// A receiver's outcode names why a source's light misses it: behind
+    /// the source, on the far side of its own opening, or past an edge of
+    /// either opening (the neighbour's across order mirrored); zero where
+    /// <see cref="DoorLightMath.Through"/> finds both openings crossed.
+    /// </summary>
+    [Fact]
+    public void AnOutcodeNamesTheEdgeALightMisses()
+    {
+        Vec3 point = new(-100, 0, 0);
+        Assert.Equal(0, DoorLightMath.Outcode(Point(new Vec3(200, 0, 0)), point, W, H, D));
+        Assert.Equal(1, DoorLightMath.Outcode(Point(new Vec3(-200, 0, 0)), point, W, H, D));
+        Assert.Equal(3, DoorLightMath.Outcode(Point(new Vec3(-200, 0, 0)), new Vec3(1, 0, 0), W, H, D));
+        Assert.Equal(2, DoorLightMath.Outcode(Point(new Vec3(200, 0, 0)), new Vec3(1, 0, 0), W, H, D));
+        Assert.Equal(8 | 64, DoorLightMath.Outcode(Point(new Vec3(100, 500, 0)), point, W, H, D));
+        Assert.Equal(4 | 128, DoorLightMath.Outcode(Point(new Vec3(100, -500, 0)), point, W, H, D));
+        Assert.Equal(32 | 512, DoorLightMath.Outcode(Point(new Vec3(100, 0, 900)), point, W, H, D));
+        Assert.Equal(16 | 256, DoorLightMath.Outcode(Point(new Vec3(100, 0, -900)), point, W, H, D));
+
+        // Through this opening, past the neighbour's.
+        Assert.Equal(64, DoorLightMath.Outcode(Point(new Vec3(100, 150, 0)), new Vec3(-10, 0, 0), W, H, D));
+        DoorSource sun = new(EmitType.SkyLight, default, new Vec3(-1, 0, 0), new Vec3(1, 1, 1), 0, 0, 0, 0, 0, 0, 0, DoorLightMath.AllCells);
+        Assert.Equal(0, DoorLightMath.Outcode(sun, point, W, H, D));
+        Assert.Equal(1, DoorLightMath.Outcode(sun with { Normal = new Vec3(1, 0, 0) }, point, W, H, D));
+    }
+
+    /// <summary>
+    /// Over patches of receivers facing the opening and sources beyond it,
+    /// the link's two shortcuts agree with evaluating every receiver: when
+    /// the four corners' outcodes share a bit no receiver of the patch is
+    /// lit, and when all four are zero and every cell is open to both, each
+    /// receiver's light is the source's falloff alone.
+    /// </summary>
+    [Fact]
+    public void ThePatchShortcutsAgreeWithEveryReceiver()
+    {
+        const int n = DoorLightMath.Subsamples;
+        Random random = new(10);
+        Vec3 facing = new(0.8f, 0, 0.6f);
+        int culled = 0, open = 0;
+        Span<Vec3> points = stackalloc Vec3[n * n];
+        for (int trial = 0; trial < 4000; trial++)
+        {
+            Vec3 corner = new(-20 - (random.NextSingle() * 200), (random.NextSingle() * 400) - 200, (random.NextSingle() * 300) - 150);
+            DoorSource source = Point(new Vec3((2 * D) + 10 + (random.NextSingle() * 220), (random.NextSingle() * 240) - 120, (random.NextSingle() * 240) - 120), quadratic: 1, constant: 0);
+            for (int sy = 0; sy < n; sy++)
+            {
+                for (int sx = 0; sx < n; sx++)
+                {
+                    points[(sy * n) + sx] = corner + new Vec3(0, sx * 16f / n, sy * 16f / n);
+                }
+            }
+
+            int c0 = DoorLightMath.Outcode(source, points[0], W, H, D), c1 = DoorLightMath.Outcode(source, points[n - 1], W, H, D);
+            int c2 = DoorLightMath.Outcode(source, points[n * (n - 1)], W, H, D), c3 = DoorLightMath.Outcode(source, points[(n * n) - 1], W, H, D);
+            for (int p = 0; p < n * n; p++)
+            {
+                float through = DoorLightMath.Through(source, points[p], facing, W, H, D, DoorLightMath.AllCells);
+                if ((c0 & c1 & c2 & c3) != 0)
+                {
+                    Assert.Equal(0f, through);
+                    culled++;
+                }
+                else if ((c0 | c1 | c2 | c3) == 0)
+                {
+                    Assert.Equal(DoorLightMath.Falloff(source, source.Origin - points[p], facing), through);
+                    open++;
+                }
+            }
+        }
+
+        Assert.True(culled > 1000 && open > 1000, $"{culled} culled, {open} open");
+    }
+
     /// <summary>A source carried across a joint lands where the neighbour's frame puts it.</summary>
     [Fact]
     public void ASourceCrossesTheJoint()
@@ -255,6 +329,7 @@ public sealed class DoorLightMathTests
         Assert.True((new Vec3(64, 44, 8) - cells.Point(5, 0.5f, 0.25f)).Length() < 1e-3f);
         Assert.Equal(new Vec3(0, 0, 1), cells.Normal);
 
+        Assert.Equal((3.5f, 2.5f), cells.Coordinates(5));
         DoorFaceCells thin = DoorLightMath.FaceCells(faces, planes, tex, 1)!;
         Assert.Equal((1, 2), (thin.CellsAcross, thin.Count));
         Assert.True((new Vec3(32, 24, 8) - thin.Point(0)).Length() < 1e-3f);

@@ -231,12 +231,20 @@ public static partial class LevelLinker
         return terms.Any ? terms : null;
     }
 
-    /// <summary>The direct light of each source at every receiving face's cells, turned into luxels, by the source's style.</summary>
+    /// <summary>
+    /// The direct light of each source at every receiving face's cells,
+    /// turned into luxels, by the source's style: each cell the mean of its
+    /// <see cref="DoorLightMath.Subsamples"/> squared receivers, a source
+    /// skipped at a cell whose corner receivers all miss one edge of an
+    /// opening (<see cref="DoorLightMath.Outcode"/>), which on the stress
+    /// level is most of them.
+    /// </summary>
     private static void Direct(DoorLightTerms terms, int sender, DoorSource[] sources, DoorReceiverFace[] faces, DoorFaceCells?[] cells, DoorFrame to)
     {
         int[] styles = [.. sources.Select(s => s.Style).Distinct().Order()];
         const int n = DoorLightMath.Subsamples;
         Span<Vec3> normals = stackalloc Vec3[4];
+        Span<Vec3> points = stackalloc Vec3[n * n];
         foreach (DoorReceiverFace receiver in faces)
         {
             DoorFaceCells face = cells[receiver.Face]!;
@@ -247,6 +255,10 @@ public static partial class LevelLinker
                 normals[k + 1] = to.DirectionToLocal(face.Bumps[k]);
             }
 
+            // The face's lightmap frame in door-local coordinates, once: a
+            // receiver is its origin plus its lightmap coordinates along
+            // the two axes.
+            Vec3 origin = to.ToLocal(face.Origin), axisS = to.DirectionToLocal(face.AxisS), axisT = to.DirectionToLocal(face.AxisT);
             UInt128[] masks = receiver.Seen.Masks();
             foreach (int style in styles)
             {
@@ -259,30 +271,52 @@ public static partial class LevelLinker
                         continue;
                     }
 
+                    (float s0, float t0) = face.Coordinates(c);
                     for (int sy = 0; sy < n; sy++)
                     {
+                        Vec3 row = origin + (axisT * (t0 + ((sy + 0.5f) / n) - 0.5f));
                         for (int sx = 0; sx < n; sx++)
                         {
-                            Vec3 point = to.ToLocal(face.Point(c, ((sx + 0.5f) / n) - 0.5f, ((sy + 0.5f) / n) - 0.5f));
-                            foreach (DoorSource source in sources)
-                            {
-                                if (source.Style != style)
-                                {
-                                    continue;
-                                }
+                            points[(sy * n) + sx] = row + (axisS * (s0 + ((sx + 0.5f) / n) - 0.5f));
+                        }
+                    }
 
-                                for (int page = 0; page < pages; page++)
+                    for (int i = 0; i < sources.Length; i++)
+                    {
+                        ref readonly DoorSource source = ref sources[i];
+                        if (source.Style != style)
+                        {
+                            continue;
+                        }
+
+                        int c0 = DoorLightMath.Outcode(source, points[0], to.Width, to.Height, to.Depth);
+                        int c1 = DoorLightMath.Outcode(source, points[n - 1], to.Width, to.Height, to.Depth);
+                        int c2 = DoorLightMath.Outcode(source, points[n * (n - 1)], to.Width, to.Height, to.Depth);
+                        int c3 = DoorLightMath.Outcode(source, points[(n * n) - 1], to.Width, to.Height, to.Depth);
+                        if ((c0 & c1 & c2 & c3) != 0)
+                        {
+                            continue;
+                        }
+
+                        // Every corner through both openings, and every cell of
+                        // each open to the cell and the source: the whole patch
+                        // is, and each receiver's light is the falloff alone.
+                        bool open = (c0 | c1 | c2 | c3) == 0 && masks[c] == DoorLightMath.AllCells && source.Cells == DoorLightMath.AllCells;
+                        for (int p = 0; p < n * n; p++)
+                        {
+                            for (int page = 0; page < pages; page++)
+                            {
+                                float e = open
+                                    ? DoorLightMath.Falloff(source, source.Type == EmitType.SkyLight ? -source.Normal : source.Origin - points[p], normals[page])
+                                    : DoorLightMath.Through(source, points[p], normals[page], to.Width, to.Height, to.Depth, masks[c]);
+                                if (e > 0)
                                 {
-                                    float e = DoorLightMath.Through(source, point, normals[page], to.Width, to.Height, to.Depth, masks[c]);
-                                    if (e > 0)
-                                    {
-                                        Vec3 add = source.Intensity * (e / (n * n));
-                                        int at = ((c * pages) + page) * 3;
-                                        cellLight[at] += add.X;
-                                        cellLight[at + 1] += add.Y;
-                                        cellLight[at + 2] += add.Z;
-                                        lit = true;
-                                    }
+                                    Vec3 add = source.Intensity * (e / (n * n));
+                                    int at = ((c * pages) + page) * 3;
+                                    cellLight[at] += add.X;
+                                    cellLight[at + 1] += add.Y;
+                                    cellLight[at + 2] += add.Z;
+                                    lit = true;
                                 }
                             }
                         }

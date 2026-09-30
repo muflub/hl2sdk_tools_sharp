@@ -97,14 +97,16 @@ internal sealed record DoorFaceCells(
     /// <summary>How many pages each style of the face holds: four on a bumped face.</summary>
     public int Pages => Bumps.Length == 0 ? 1 : 4;
 
+    /// <summary>One cell's centre in lightmap coordinates (s, t).</summary>
+    public (float S, float T) Coordinates(int cell) => (
+        MinS + (cell % CellsAcross) + (Width > 1 ? 0.5f : 0f),
+        MinT + (cell / CellsAcross) + (Height > 1 ? 0.5f : 0f));
+
     /// <summary>One cell's point on the face, offset by a fraction of a luxel along s and t (0 is the centre).</summary>
     public Vec3 Point(int cell, float ds = 0, float dt = 0)
     {
-        int i = cell % CellsAcross;
-        int j = cell / CellsAcross;
-        float s = MinS + i + (Width > 1 ? 0.5f : 0f) + ds;
-        float t = MinT + j + (Height > 1 ? 0.5f : 0f) + dt;
-        return Origin + (AxisS * s) + (AxisT * t);
+        (float s, float t) = Coordinates(cell);
+        return Origin + (AxisS * (s + ds)) + (AxisT * (t + dt));
     }
 }
 
@@ -295,6 +297,47 @@ internal static class DoorLightMath
         // other way (DoorFrame: its across axis is this one's negated).
         int theirs = Cell(-there.Y, there.Z, width, height);
         return theirs < 0 || !Has(source.Cells, theirs) ? 0 : Falloff(source, d, normal);
+    }
+
+    /// <summary>
+    /// Why a source's light cannot reach a receiver point through a joint,
+    /// as bits (zero when it may): 1, the source is not beyond this room's
+    /// opening; 2, the point is not in front of it; else where the segment
+    /// toward the source crosses this room's opening (4 left of it, 8 right,
+    /// 16 below, 32 above) and the neighbour's (64, 128, 256, 512, in the
+    /// neighbour's own across order). The tests are those of
+    /// <see cref="Through"/>, bit for bit.
+    /// </summary>
+    /// <remarks>
+    /// What it is for: the receivers of one sample cell are points of a
+    /// small planar patch, and a source projects the patch onto either
+    /// opening's plane centrally (the sun, in parallel), which keeps it
+    /// convex; so when the codes of the patch's four corner receivers share
+    /// a bit, every receiver of the patch misses the same edge of the same
+    /// opening (the first two bits are linear in the point, so they carry
+    /// over too), and the link skips the source for that cell without
+    /// evaluating its nine receivers.
+    /// </remarks>
+    public static int Outcode(in DoorSource source, Vec3 point, float width, float height, float depth)
+    {
+        Vec3 d = source.Type == EmitType.SkyLight ? -source.Normal : source.Origin - point;
+        int code = (d.X > 0 ? 0 : 1) | (point.X >= 0 ? 2 : 0);
+        if (code != 0)
+        {
+            return code;
+        }
+
+        Vec3 here = point + (d * (-point.X / d.X));
+        Vec3 there = point + (d * (((2 * depth) - point.X) / d.X));
+        return Side(here.Y, here.Z, width, height) | (Side(-there.Y, there.Z, width, height) << 4);
+
+        // The same fractions Cell tests, as edge bits.
+        static int Side(float across, float up, float width, float height)
+        {
+            float u = (across + (width / 2)) / width;
+            float v = (up + (height / 2)) / height;
+            return (u < 0 ? 4 : 0) | (u >= 1 ? 8 : 0) | (v < 0 ? 16 : 0) | (v >= 1 ? 32 : 0);
+        }
     }
 
     /// <summary>
