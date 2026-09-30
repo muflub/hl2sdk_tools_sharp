@@ -17,7 +17,7 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 
 /// <summary>
 /// The compatibility check and the singleton rule over a level's libraries
-/// (the rooms design, 17.4 and 17.5; D20, D21, D24 to D26, O25): every
+/// (the rooms design, 17.4 and 17.5; D20, D21, D24 to D26, D29): every
 /// refusal and warning of 17.3 by its exact text, on what the link and the
 /// flatten read of each library.
 /// </summary>
@@ -163,55 +163,139 @@ public sealed class LevelLibrariesCheckTests
             Check(Facts("base", Grid(), [Sun(), Fog("mist")]), Facts("caves", Grid(), [otherSun, Fog("mist", id: 91)])));
     }
 
-    /// <summary>17.3, first lacks (O25): a singleton only a later library has, dropped; an unnamed and a named copy are different entities.</summary>
+    /// <summary>
+    /// D29 (was O25, whose facts said "dropped"): a singleton only a later
+    /// library has is the level's, without a line; an unnamed and a named
+    /// copy are different entities, so the named fog fills a gap beside the
+    /// first library's unnamed one. The level's list is the first library's,
+    /// then the fillers in library order; the sun's source is the library
+    /// that supplied it.
+    /// </summary>
     [Fact]
-    public void ASingletonOnlyALaterLibraryHasIsDropped()
+    public void ASingletonOnlyALaterLibraryHasIsTheLevels()
     {
-        Assert.Equal(
-            [
-                "library caves: its light_environment is dropped; the level's singletons come from library base, which has none.",
-                "library caves: its env_fog_controller \"mist\" is dropped; the level's singletons come from library base, which has none.",
-            ],
-            Check(Facts("base", Grid(), [Fog()]), Facts("caves", Grid(), [Sun(), Fog("mist")])));
+        VmfChunk fog = Fog(), sun = Sun(), mist = Fog("mist");
+        LevelLibraries.LibraryFacts[] facts = [Facts("base", Grid(), [fog]), Facts("caves", Grid(), [sun, mist])];
+        Assert.Empty(Check(facts));
+        LevelLibraries.LevelSingletonChoice level = LevelLibraries.Singletons(facts);
+        Assert.Equal([fog, sun, mist], level.Entities);
+        Assert.Equal(1, level.SunSource);
     }
 
-    /// <summary>Every listed library speaks, placed or not; the first library's singletons stand even when it places no room.</summary>
+    /// <summary>
+    /// The first library still wins where it has a singleton (D20): its copy
+    /// is the level's, the later one warns, and the level's list is the
+    /// first library's own, so a level whose first library has every
+    /// singleton writes what it wrote before D29.
+    /// </summary>
     [Fact]
-    public void AnUnplacedLibrarysSingletonsWarn()
+    public void TheFirstLibraryStillWinsWhereItHasOne()
     {
-        Assert.Equal(
-            ["library caves: its env_fog_controller is dropped; the level's singletons come from library base, which has none."],
-            Check(Facts("base"), Facts("caves", entities: [Fog()]), Facts("halls", Grid())));
+        LevelLibraries.LibraryFacts first = Facts("base", Grid(), [Sun(), Fog("mist")]);
+        LevelLibraries.LibraryFacts[] facts = [first, Facts("caves", Grid(), [Sun("0 90 0"), Fog("mist", "9 9 9")])];
+        LevelLibraries.LevelSingletonChoice level = LevelLibraries.Singletons(facts);
+        Assert.Same(first.Entities, level.Entities);
+        Assert.Same(first.Options, level.Options);
+        Assert.Equal((null, 0), (level.SkyboxSource, level.SunSource));
+        Assert.Equal(2, Check(facts).Count);
+
+        // No library with a sun: the source reads as the first library.
+        Assert.Equal(0, LevelLibraries.Singletons([Facts("base"), Facts("caves", entities: [Fog()])]).SunSource);
+        Assert.Throws<ArgumentOutOfRangeException>(() => LevelLibraries.Singletons([]));
     }
 
-    /// <summary>17.3, option: each option a later library sets to other than the level's value; unset or equal is quiet.</summary>
+    /// <summary>
+    /// Every listed library speaks and fills, placed or not: an unplaced
+    /// library's fog is the level's, and a third library's copy is held to
+    /// it, differing (named as the earliest listed with one) or equal.
+    /// </summary>
+    [Fact]
+    public void AGapIsFilledFromTheEarliestLibraryThatHasIt()
+    {
+        Assert.Equal(
+            ["library halls: its env_fog_controller differs from library caves's (fogcolor: \"9 9 9\" against \"1 2 3\"); the level takes library caves's, the earliest listed with one, and drops it."],
+            Check(Facts("base"), Facts("caves", entities: [Fog()]), Facts("halls", Grid(), [Fog(colour: "9 9 9")])));
+        Assert.Equal(
+            ["library halls: 1 singleton(s) equal to library caves's dropped (env_fog_controller)."],
+            Check(Facts("base"), Facts("caves", entities: [Fog()]), Facts("halls", Grid(), [Fog(id: 40)])));
+    }
+
+    /// <summary>
+    /// D24 with D29: equal copies are still one line per library; when the
+    /// level's copies came from several libraries (the first's sun, a later
+    /// library's fog), the line names each copy's library.
+    /// </summary>
+    [Fact]
+    public void EqualCopiesOfSeveralSourcesWarnOnceALibrary()
+    {
+        Assert.Equal(
+            ["library halls: 2 singleton(s) equal to the level's dropped (light_environment of library base, env_fog_controller \"mist\" of library caves)."],
+            Check(Facts("base", Grid(), [Sun()]), Facts("caves", Grid(), [Fog("mist")]), Facts("halls", Grid(), [Sun(id: 30), Fog("mist", id: 31)])));
+    }
+
+    /// <summary>
+    /// 17.3, option, with D29: an option the first library sets stands and a
+    /// later library's other value warns; one the first does not set is
+    /// taken from the earliest library that sets it, without a line, and a
+    /// later library's other value warns against that library's. (Before
+    /// D29 an unset option was the default and the later value warned.)
+    /// </summary>
     [Fact]
     public void ADifferentOptionWarns()
     {
         RoomLibraryOptions theirs = new(300) { FoldLogic = false, DoorPortals = true, MapVersion = "7" };
+        LevelLibraries.LibraryFacts[] filled = [Facts("base", Grid(), options: new RoomLibraryOptions { MapVersion = "3", NameKeys = "k" }), Facts("caves", Grid(), options: theirs)];
+        Assert.Empty(Check(filled));
+        Assert.Equal(new RoomLibraryOptions(300) { FoldLogic = false, DoorPortals = true, MapVersion = "3", NameKeys = "k" }, LevelLibraries.Singletons(filled).Options);
+
         Assert.Equal(
             [
-                "library caves: rooms_entity_reserve 300 is ignored; the level takes library base's, 512.",
+                "library halls: rooms_entity_reserve 200 is ignored; the level takes library caves's, 300.",
+                "library halls: rooms_fold_logic 1 is ignored; the level takes library caves's, 0.",
+                "library halls: rooms_door_portals 0 is ignored; the level takes library caves's, 1.",
+            ],
+            Check([.. filled, Facts("halls", Grid(), options: new RoomLibraryOptions(200) { FoldLogic = true, DoorPortals = false })]));
+
+        LevelLibraries.LibraryFacts first = Facts("base", Grid(), options: new RoomLibraryOptions(400) { FoldLogic = true, DoorPortals = false });
+        Assert.Equal(
+            [
+                "library caves: rooms_entity_reserve 300 is ignored; the level takes library base's, 400.",
                 "library caves: rooms_fold_logic 0 is ignored; the level takes library base's, 1.",
                 "library caves: rooms_door_portals 1 is ignored; the level takes library base's, 0.",
             ],
-            Check(Facts("base", Grid()), Facts("caves", Grid(), options: theirs)));
-        Assert.Equal(
-            ["library caves: rooms_entity_reserve 300 is ignored; the level takes library base's, 400."],
-            Check(Facts("base", Grid(), options: new RoomLibraryOptions(400)), Facts("caves", Grid(), options: new RoomLibraryOptions(300))));
+            Check(first, Facts("caves", Grid(), options: theirs)));
+        Assert.Same(first.Options, LevelLibraries.Singletons([first, Facts("caves", Grid(), options: theirs)]).Options);
         Assert.Empty(Check(Facts("base", Grid(), options: new RoomLibraryOptions(512) { FoldLogic = true }), Facts("caves", Grid(), options: new RoomLibraryOptions(512))));
     }
 
-    /// <summary>17.3, skybox: another library's skybox dropped, against the first's or the first's lack of one.</summary>
+    /// <summary>
+    /// 17.3, skybox, with D29: another library's skybox is dropped against
+    /// the first's; when the first has none, the earliest library's with one
+    /// is the level's (before D29 it was dropped), and a third library's
+    /// warns against it.
+    /// </summary>
     [Fact]
     public void AnotherLibrarysSkyboxWarns()
     {
         Assert.Equal(
             ["library caves: its skybox room \"sky2\" is dropped; the level's skybox is library base's, \"sky\"."],
             Check(Facts("base", Grid(), skybox: "sky"), Facts("caves", Grid(), skybox: "sky2")));
+        LevelLibraries.LibraryFacts[] filled = [Facts("base", Grid()), Facts("caves", Grid(), skybox: "sky2")];
+        Assert.Empty(Check(filled));
+        Assert.Equal(1, LevelLibraries.Singletons(filled).SkyboxSource);
         Assert.Equal(
-            ["library caves: its skybox room \"sky2\" is dropped; the level's singletons come from library base, which has no skybox."],
-            Check(Facts("base", Grid()), Facts("caves", Grid(), skybox: "sky2")));
+            ["library halls: its skybox room \"sky3\" is dropped; the level's skybox is library caves's, \"sky2\"."],
+            Check([.. filled, Facts("halls", Grid(), skybox: "sky3")]));
+    }
+
+    /// <summary>The level's skybox library: the first with one, or none.</summary>
+    [Fact]
+    public void TheSkyboxSourceIsTheEarliestLibraryWithOne()
+    {
+        Assert.Equal(0, LevelLibraries.SkyboxSource(["a", "b"]));
+        Assert.Equal(1, LevelLibraries.SkyboxSource([null, "b", "c"]));
+        Assert.Null(LevelLibraries.SkyboxSource([null, null]));
+        Assert.Throws<ArgumentNullException>(() => LevelLibraries.SkyboxSource(null!));
     }
 
     /// <summary>
@@ -246,7 +330,7 @@ public sealed class LevelLibrariesCheckTests
     public void TheLinesComeLibraryByLibrary()
     {
         List<string> lines = Check(
-            Facts("base", Grid(), [Sun()], skybox: "sky", world: [("skyname", "a")]),
+            Facts("base", Grid(), [Sun()], new RoomLibraryOptions(512), "sky", [("skyname", "a")]),
             Facts("caves", Grid(), [Sun("0 90 0")], new RoomLibraryOptions(1), "sky2", [("skyname", "b"), (NavSettings.StepKey, "20")]),
             Facts("halls", Grid(), [Fog()], world: [("skyname", "c")]));
         string[] starts =
@@ -256,7 +340,6 @@ public sealed class LevelLibrariesCheckTests
             "library caves: its skybox room",
             "library caves: its rooms' navigation",
             "library caves: its rooms were compiled",
-            "library halls: its env_fog_controller is dropped",
             "library halls: its rooms were compiled",
         ];
         Assert.Equal(starts.Length, lines.Count);

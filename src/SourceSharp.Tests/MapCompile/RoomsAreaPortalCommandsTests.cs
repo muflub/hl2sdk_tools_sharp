@@ -152,6 +152,57 @@ public sealed class RoomsAreaPortalCommandsTests
         Assert.Contains("its 2 room(s) bring at least 4, the worldspawn and the library's own entities included.", over.ToString(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The rooms design's D29 through the CLI: a level of two libraries
+    /// whose first has no skybox takes the second's. <c>ssmap link</c>
+    /// loads that library's skybox room from its pack (it loaded only the
+    /// first library's before) and places it below the level with its
+    /// camera, without a line; the flatten writes the same camera.
+    /// </summary>
+    [Fact]
+    public async Task ALaterLibrarysSkyboxIsTheLevelsThroughTheCli()
+    {
+        InMemoryFileSystem fs = new();
+        fs.AddText(Rooted("/game/gameinfo.txt"), GameInfoText);
+        foreach ((string path, string text) in new[]
+        {
+            (RoomHarness.Plain, "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n}\n"),
+            (RoomHarness.Trigger, "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compileTrigger\" \"1\"\n}\n"),
+            (RoomLightHarness.Sky, "\"UnlitGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compileSky\" \"1\"\n}\n"),
+        })
+        {
+            fs.AddText(Rooted($"/game/materials/{path}.vmt"), text);
+        }
+
+        fs.AddFile(Rooted("/game/maps/plain.vmf"), RoomPropHarness.Library().ToBytes());
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), RoomSkyboxHarness.Library().ToBytes());
+        fs.AddText(
+            Rooted("/levels/two.yaml"),
+            "libraries:\n  base: ../game/maps/plain.vmf\n  sky: ../game/maps/rooms.vmf\nrows: 1\ncolumns: 2\ngrid:\n  - [base.hub, sky.other]\n");
+        foreach (string library in new[] { "plain", "rooms" })
+        {
+            using StringWriter room = new();
+            int packed = await RoomCommands.RunRoomAsync(
+                fs, [], ["-cooker", "none", "-nolight", $"/game/maps/{library}.vmf", "-out", $"/game/maps/{library}.roompack"], room);
+            Assert.True(packed == Program.ExitSuccess, room.ToString());
+        }
+
+        using StringWriter link = new();
+        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/two.yaml", "-out", "/out/two.bsp", "-no-nav"], link);
+        Assert.True(exit == Program.ExitSuccess, link.ToString());
+        Assert.DoesNotContain("warning", link.ToString(), StringComparison.Ordinal);
+        BspData linked = await LoadAsync(fs, "/out/two.bsp");
+        Assert.Single(EntityLump.Parse(linked[BspLump.Entities]), e => e.ClassName == "sky_camera" && e.Get("origin") == "128 128 -128");
+
+        using StringWriter flatten = new();
+        exit = await RoomCommands.RunLinkAsync(fs, ["/levels/two.yaml", "--flatten", "-out", "/out/two.vmf"], flatten);
+        Assert.True(exit == Program.ExitSuccess, flatten.ToString());
+        Assert.DoesNotContain("warning", flatten.ToString(), StringComparison.Ordinal);
+        VmfDocument flat = await VmfDocument.ParseAsync(fs.GetBytes(VPath.Create(Rooted("/out/two.vmf")))!);
+        VmfChunk camera = Assert.Single(flat.GetChunks("entity"), e => e.GetValue("classname") == "sky_camera");
+        Assert.Equal("128 128 -128", camera.GetValue("origin"));
+    }
+
     // The CLI hands its commands full host paths (Program resolves them
     // first), so the fact does the same: on Windows a bare "/x" names no file.
     private static string Rooted(string path) => VPath.Create(Path.GetFullPath(path)).Value;

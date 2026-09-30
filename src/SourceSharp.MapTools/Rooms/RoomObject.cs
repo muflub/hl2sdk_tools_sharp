@@ -323,6 +323,22 @@ public sealed class RoomLibrary
     /// </summary>
     public string? SkyboxRoom { get; set; }
 
+    /// <summary>
+    /// Which of the level's libraries, in level order (<see cref="SourceOf"/>),
+    /// the level's sun came from: 0 for a library that is not a level's
+    /// combination, and for a combination whose first library has a sun or
+    /// no library has one; else the earliest library with one, which fills
+    /// the first library's gap (the rooms design's D29,
+    /// <see cref="LevelLibraries.Combine"/>).
+    /// </summary>
+    /// <remarks>
+    /// The link reads it to take the level's sun world lights from a room
+    /// baked under that sun (<c>LevelLinker.PlanLighting</c>): the sun
+    /// entity the level writes and the direct sunlight its lightmaps hold
+    /// must be one sun, and only that library's rooms were baked under it.
+    /// </remarks>
+    public int SunSource { get; set; }
+
     /// <summary>The rooms, in insertion order.</summary>
     public IReadOnlyCollection<RoomObject> Rooms => _rooms.Values;
 

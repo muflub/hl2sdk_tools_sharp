@@ -166,9 +166,11 @@ public static partial class RoomCommands
                 return ExitFailed;
             }
 
-            // Each pack's placed rooms, at their turns, and the first
-            // library's skybox; then every library with its rooms.
+            // Each pack's placed rooms, at their turns, and the level's
+            // skybox (the first library's, or the earliest library's with one
+            // when the first has none); then every library with its rooms.
             (List<LevelCell> first, Dictionary<string, HashSet<int>> turns) = PlacedRooms(resolved);
+            int? skyboxSource = LevelLibraries.SkyboxSource(skyboxes);
             List<IReadOnlyList<RoomObject>> loaded = [];
             for (int i = 0; i < keys.Count; i++)
             {
@@ -176,7 +178,7 @@ public static partial class RoomCommands
                 List<RoomPackRequest> requests = [.. first
                     .Where(c => c.Room.StartsWith(prefix, StringComparison.Ordinal))
                     .Select(c => new RoomPackRequest(c.Room[prefix.Length..], turns[c.Room]) { Navigation = !nav.Skip })];
-                if (i == 0 && skyboxes[0] is { } skybox && !turns.ContainsKey(prefix + skybox))
+                if (i == skyboxSource && skyboxes[i] is { } skybox && !turns.ContainsKey(prefix + skybox))
                 {
                     requests.Add(new RoomPackRequest(skybox, [0]));
                 }
