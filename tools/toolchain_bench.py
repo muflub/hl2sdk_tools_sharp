@@ -22,9 +22,10 @@ The toolsets:
             every stage is a process of its own
   ssmap-fast, ssmap-aot-fast
             ssmap and ssmap-aot with vvis -fastflow (and nothing else
-            changed): the approximate portal flow, which trades a few extra
-            visible clusters for a faster vvis. Its accuracy cost shows in the
-            vis bytes column, next to plain ssmap's and stock's
+            changed): the approximate portal flow, which stops walks that can
+            only reach clusters already seen, so its PVS is a subset of the
+            exact one (some visible pairs are culled). Its accuracy cost shows
+            in the vis bytes column, next to plain ssmap's and stock's
 
 The Windows tools cannot mount |appid_N| search paths ("Appid based mounting
 is not supported on non-engine DLL projects"), so each map's game directory is

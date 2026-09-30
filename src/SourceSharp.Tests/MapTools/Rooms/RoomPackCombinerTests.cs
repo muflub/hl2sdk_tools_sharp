@@ -20,7 +20,8 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// Several libraries split for one pack (the rooms design, 17.10, D26):
 /// every room qualified and carrying its library's name keys, every later
 /// library's room given the first library's worldspawn, the pack's
-/// singletons the first library's; and the pieces that serve it (the
+/// singletons the first library's, its gaps filled from the later ones
+/// (D29); and the pieces that serve it (the
 /// worldspawn a room carries, the name keys a room compiles with, the
 /// cache key, the pack and level ids, the names a library holds rooms by).
 /// </summary>
@@ -76,24 +77,61 @@ public sealed class RoomPackCombinerTests
     /// The singleton rule's lines are the link's, but never the worldspawn
     /// or navigation line: no room of the pack is compiled under another
     /// library's worldspawn. A library alone is one namespace and warns of
-    /// nothing. The navigation is the first library's.
+    /// nothing. The navigation is the first library's. (Before D29 the
+    /// second library's sun, which the first lacked, was dropped; here the
+    /// first has one, so the second's differs and is dropped.)
     /// </summary>
     [Fact]
     public void TheSingletonLinesAreTheLinksWithoutTheWorldspawns()
     {
         VmfDocument first = RoomPropHarness.Library();
+        first.Chunks.Add(RoomLightHarness.Sun());
         VmfDocument second = RoomPropHarness.Library();
         second.GetChunk("world")!.AddKey("skyname", "sky_other");
         second.GetChunk("world")!.AddKey(NavSettings.StepKey, "24");
-        second.Chunks.Add(RoomLightHarness.Sun());
+        second.Chunks.Add(RoomLightHarness.Sun(angles: "0 90 0"));
 
         RoomPackPlan plan = RoomPackCombiner.Plan([Source("base", first), Source("caves", second)]);
-        Assert.Equal(["library caves: its light_environment is dropped; the level's singletons come from library base, which has none."], plan.Warnings);
-        Assert.Empty(plan.LibraryEntities);
+        Assert.Equal(
+            ["library caves: its light_environment differs from library base's (angles: \"0 90 0\" against \"0 30 0\"); the level takes library base's, the first listed, and drops it."],
+            plan.Warnings);
+        Assert.Contains("0 30 0", Assert.Single(plan.LibraryEntities).GetValue("angles"), StringComparison.Ordinal);
         Assert.Empty(RoomPackCombiner.Plan([Source("caves", second)]).Warnings);
         Assert.Equal(NavSettings.DefaultStepHeight, RoomPackCombiner.NavOf([Source("base", first), Source("caves", second)])!.StepHeight);
         Assert.Equal(24, RoomPackCombiner.NavOf([Source("caves", second), Source("base", first)])!.StepHeight);
         Assert.Null(RoomPackCombiner.NavOf([]));
+    }
+
+    /// <summary>
+    /// D29 at pack time: the first library has no sun, no skybox and no
+    /// entity reserve, the second has all three. The pack's <c>LENT</c> is
+    /// the second's sun, its <c>LOPT</c> the first's settings with the
+    /// second's reserve, its skybox the second's, packed last among the
+    /// second's rooms and named qualified; nothing warns. The singleton
+    /// digest covers the filled entities and the later library's skybox, so
+    /// <c>-only</c> sees either change.
+    /// </summary>
+    [Fact]
+    public void ALaterLibraryFillsThePacksSingletons()
+    {
+        VmfDocument first = RoomPropHarness.Library();
+        first.GetChunk("world")!.AddKey(RoomLibraryOptions.FoldLogicKey, "1");
+        VmfDocument second = RoomSkyboxHarness.Library();
+        second.GetChunk("world")!.AddKey(RoomLibraryOptions.EntityReserveKey, "300");
+        second.GetChunk("world")!.AddKey(RoomLibraryOptions.FoldLogicKey, "0");
+        VmfChunk sun = RoomLightHarness.Sun();
+        second.Chunks.Add(sun);
+
+        RoomPackPlan plan = RoomPackCombiner.Plan([Source("base", first), Source("caves", second)]);
+        Assert.Equal(["library caves: rooms_fold_logic 0 is ignored; the level takes library base's, 1."], plan.Warnings);
+        Assert.Equal("0 30 0", Assert.Single(plan.LibraryEntities).GetValue("angles"));
+        Assert.Equal((300, true), (plan.Options.EntityReserve, plan.Options.Folds));
+        Assert.Equal("caves.sky", plan.SkyboxRoom);
+        Assert.Equal(["base.hub", "base.other", "caves.hub", "caves.other", "caves.sky"], plan.Rooms.Select(r => r.Definition.Name));
+        IReadOnlyList<KeyValuePair<string, string>> world = RoomLibraryVmf.RoomWorldKeys(first.GetChunk("world")!);
+        Assert.Equal(RoomPackNamespaces.SingletonDigest(world, plan.LibraryEntities, "caves.sky"), plan.SingletonsSha256);
+        Assert.NotEqual(RoomPackNamespaces.SingletonDigest(world, plan.LibraryEntities), plan.SingletonsSha256);
+        Assert.NotEqual(RoomPackNamespaces.SingletonDigest(world, []), RoomPackNamespaces.SingletonDigest(world, plan.LibraryEntities));
     }
 
     /// <summary>

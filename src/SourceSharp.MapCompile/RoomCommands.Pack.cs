@@ -36,7 +36,9 @@ namespace SourceSharp.MapCompile;
 /// then every room of every library compiles in one run of
 /// <see cref="RoomLibraryBuild"/>, <c>-threads</c> at once, each named
 /// <c>key.room</c> and carrying the first library's worldspawn, and lit
-/// under the first library's sun (<see cref="RoomPackCombiner"/>, D26). A
+/// under the level's sun: the first library's, or the earliest library's
+/// with one when the first has none (<see cref="RoomPackCombiner"/>, D26,
+/// D29). A
 /// level of the pack links without the worldspawn, sun and singleton lines
 /// separate packs would give.
 /// </para>
@@ -47,7 +49,7 @@ namespace SourceSharp.MapCompile;
 /// to one library compiles that library's changed rooms and reuses the rest.
 /// <c>-only &lt;keys&gt;</c> compiles only those namespaces and copies every
 /// other one's sections byte for byte from the existing pack, once its VMF
-/// and the first library's singletons are what that pack recorded.
+/// and the level's singletons (D29) are what that pack recorded.
 /// </para>
 /// </remarks>
 public static partial class RoomCommands
@@ -506,7 +508,7 @@ public static partial class RoomCommands
         }
 
         // -only: the existing pack's namespaces, each one kept checked against
-        // its VMF now, and later against the first library's singletons.
+        // its VMF now, and later against the level's singletons.
         IReadOnlyList<RoomPackNamespace>? previous = null;
         Dictionary<string, IReadOnlyList<RoomPackItem>> copied = new(StringComparer.Ordinal);
         if (only.Count > 0)
@@ -582,7 +584,7 @@ public static partial class RoomCommands
             if (RoomPackNamespaces.Find(previous!, space.Key)!.SingletonsSha256 != plan.SingletonsSha256)
             {
                 await output.WriteLineAsync(
-                    $"{verb}: library {space.Key} changed since {pack} was built (the first library's singletons); rebuild it too, or leave out -only.")
+                    $"{verb}: library {space.Key} changed since {pack} was built (the level's singletons); rebuild it too, or leave out -only.")
                     .ConfigureAwait(false);
                 return ExitFailed;
             }
@@ -599,7 +601,8 @@ public static partial class RoomCommands
                 CultureInfo.InvariantCulture, $"{verb}: library {space.Key}: copied {copied[space.Key].Count} room(s) from {pack}")).ConfigureAwait(false);
         }
 
-        // Lit under the first library's sun (D26); the id over every library.
+        // Lit under the level's sun (the first library's, or the earliest
+        // library's with one, D26 and D29); the id over every library.
         RoomLightingSettings? lighting = vradOptions is null
             ? null
             : new RoomLightingSettings(vradOptions with { Compliance = parsed.Options.Compliance })

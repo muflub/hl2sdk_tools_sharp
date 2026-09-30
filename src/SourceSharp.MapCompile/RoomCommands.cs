@@ -1458,11 +1458,13 @@ public static partial class RoomCommands
             space = RoomPackNamespaces.Find(namespaces, key)
                 ?? throw new PackKeyException($"room pack {pack} combines libraries {And([.. namespaces.Select(n => n.Key)])}; it has none named {key}.");
 
-            // The pack's singletons are its first namespace's; each keeps its own name keys.
+            // The pack's singleton set (the level's by D29) is listed with
+            // its first namespace; each keeps its own name keys; the skybox
+            // room is its own namespace's, the one its name starts with.
             bool first = ReferenceEquals(space, namespaces[0]);
             libraryEntities = first ? libraryEntities : [];
             options = (first ? options : RoomLibraryOptions.None) with { NameKeys = space.NameKeys };
-            skybox = first && skybox is { } sky && sky.StartsWith(space.Prefix, StringComparison.Ordinal) ? sky[space.Prefix.Length..] : null;
+            skybox = skybox is { } sky && sky.StartsWith(space.Prefix, StringComparison.Ordinal) ? sky[space.Prefix.Length..] : null;
         }
 
         // A room's name as the library names it: a namespace's without its prefix.
