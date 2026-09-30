@@ -690,7 +690,7 @@ public static partial class RoomCommands
             listing.Append(level.Libraries is null ? $"library: {keys[i].Path}\n" : $"library {keys[i].Key}: {keys[i].Path}\n");
             listing.Append(counts is null
                 ? DescribeLibrary(rooms)
-                : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names, counts.LibraryEntities, counts.Lighting));
+                : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names, counts.LibraryEntities, counts.Lighting, counts.Features));
         }
 
         IReadOnlyList<string> warnings;

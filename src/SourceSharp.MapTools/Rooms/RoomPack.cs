@@ -1422,6 +1422,62 @@ public static class RoomPack
     }
 
     /// <summary>
+    /// What each room of a pack carries that <c>ssmap rooms</c> lists on the
+    /// room's own lines, by name: its displacements (<c>DISP</c>), its water
+    /// (<c>WATR</c>) and its level map (<c>MAPV</c>). A room with none of the
+    /// three sections is not listed, so a pack written before them lists as
+    /// it did.
+    /// </summary>
+    /// <param name="r">The pack.</param>
+    /// <param name="index">Its index.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The summaries, by room name.</returns>
+    /// <exception cref="LinkException">One of the sections is damaged.</exception>
+    /// <remarks>
+    /// Each section is read only as far as the listing needs (a count, or the
+    /// map's rings and markers) and without the room's compile, which the
+    /// full readers bind to; the sections are small (a map is a few hundred
+    /// bytes a room), and the container, the large part, is not read.
+    /// </remarks>
+    public static async Task<IReadOnlyDictionary<string, RoomFeatureSummary>> ReadFeatureSummariesAsync(
+        Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(r);
+        ArgumentNullException.ThrowIfNull(index);
+        string[] tags = [RoomDisplacements.SectionTag, RoomWater.SectionTag, RoomMapView.SectionTag];
+        List<(string Name, RoomPackSection Section)> wanted = [];
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            foreach (string tag in tags)
+            {
+                if (entry.Find(tag) is { } section)
+                {
+                    wanted.Add((entry.Name, section));
+                }
+            }
+        }
+
+        Dictionary<(string, string), ArraySegment<byte>> read = await ReadSectionsAsync(r, index, wanted, cancellationToken)
+            .ConfigureAwait(false);
+        Dictionary<string, RoomFeatureSummary> summaries = new(StringComparer.Ordinal);
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            int? displacements = read.TryGetValue((entry.Name, RoomDisplacements.SectionTag), out ArraySegment<byte> disp)
+                ? RoomDisplacements.ReadCount(disp, entry.Name) : null;
+            int? water = read.TryGetValue((entry.Name, RoomWater.SectionTag), out ArraySegment<byte> watr)
+                ? RoomWater.ReadVolumeCount(watr, entry.Name) : null;
+            RoomMapSummary? map = read.TryGetValue((entry.Name, RoomMapView.SectionTag), out ArraySegment<byte> mapv)
+                ? RoomMapView.ReadSummary(mapv, entry.Name) : null;
+            if (displacements is not null || water is not null || map is not null)
+            {
+                summaries[entry.Name] = new RoomFeatureSummary(displacements ?? 0, water, map);
+            }
+        }
+
+        return summaries;
+    }
+
+    /// <summary>
     /// How many turns each lit room of a pack stores its base lighting for
     /// (<see cref="RoomLighting.RotationCount"/>: 1, or 4 when sun or sky
     /// light reaches it), by name: what <c>ssmap rooms</c> shows. A room
