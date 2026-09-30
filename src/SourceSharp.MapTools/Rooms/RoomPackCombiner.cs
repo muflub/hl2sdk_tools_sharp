@@ -33,12 +33,13 @@ public sealed record RoomPackSpace(string Key, string Source, string VmfSha256, 
 /// <summary>
 /// Several libraries split for one pack (the rooms design, 17.10): every
 /// room under its qualified name and compiled under the first library's
-/// worldspawn, and the pack's library-wide sections the first library's.
+/// worldspawn, and the pack's library-wide sections the level's singletons
+/// (the first library's, its gaps filled from the later ones, D29).
 /// </summary>
 /// <param name="Spaces">Each library, in the order given.</param>
-/// <param name="LibraryEntities">The pack's <c>LENT</c>: the first library's library-wide entities.</param>
-/// <param name="Options">The pack's <c>LOPT</c>: the first library's settings.</param>
-/// <param name="SkyboxRoom">The pack's <c>SKYB</c>: the first library's skybox room, qualified, or null.</param>
+/// <param name="LibraryEntities">The pack's <c>LENT</c>: the first library's library-wide entities, then each later library's the first lacks (<see cref="LevelLibraries.Singletons"/>).</param>
+/// <param name="Options">The pack's <c>LOPT</c>: the first library's settings, each it does not set taken from the earliest library that does.</param>
+/// <param name="SkyboxRoom">The pack's <c>SKYB</c>: the skybox room of the first library with one, qualified (so its namespace says whose), or null.</param>
 /// <param name="SingletonsSha256">What every namespace is compiled under (<see cref="RoomPackNamespaces.SingletonDigest"/>).</param>
 /// <param name="Warnings">The singleton rule's lines, each a whole sentence, in the order the link prints them for separate packs.</param>
 public sealed record RoomPackPlan(
@@ -64,9 +65,10 @@ public sealed record RoomPackPlan(
 /// room compiles, with the message <c>ssmap room</c> gives for it. Then the
 /// libraries are held to one another as a level of them would be (the
 /// cell size and the door kit, 17.5), and the singleton rule is applied
-/// (17.4): the first library supplies the pack's library-wide entities,
-/// settings and skybox; every other library's are dropped, with the lines
-/// the link would print for separate packs. The worldspawn and navigation
+/// (17.4, D29): the first library supplies the pack's library-wide
+/// entities, settings and skybox, each it lacks entirely taken from the
+/// earliest later library that has it; every other copy is dropped, with
+/// the lines the link would print for separate packs. The worldspawn and navigation
 /// lines are not among them: they describe rooms compiled under another
 /// library's worldspawn, and here no room is.
 /// </para>
@@ -74,7 +76,9 @@ public sealed record RoomPackPlan(
 /// <b>One worldspawn and one sun (D26).</b> Every room of a later library
 /// takes the first library's worldspawn keys as its own
 /// (<see cref="RoomLibraryVmf.WithWorld"/>), in place of its library's, and
-/// the pack lights every room under the first library's sun, so a level of
+/// the pack lights every room under the level's sun (the first library's,
+/// or with D29 the earliest library's with one when the first has none;
+/// the worldspawn is not a singleton D29 fills: every library has one), so a level of
 /// the pack links under the singletons its rooms were compiled with and the
 /// link has nothing to warn about. A later library's own worldspawn, and its
 /// navigation keys with it, are the level's no more than its sun is.
@@ -147,14 +151,22 @@ public static class RoomPackCombiner
         // Compatibility and the singleton rule, over every library: all of
         // them go into the pack. No worldspawn is passed, so neither the
         // worldspawn nor the navigation line is given (the remarks say why).
-        List<string> warnings = LevelLibraries.Check([.. sources.Select((s, i) => new LevelLibraries.LibraryFacts(
+        List<LevelLibraries.LibraryFacts> facts = [.. sources.Select((s, i) => new LevelLibraries.LibraryFacts(
             s.Key,
             s.Source,
             splits[i].Rooms.Count > 0 ? splits[i].Rooms[0].Definition : splits[i].Skybox?.Definition,
             splits[i].LibraryEntities,
             splits[i].Options,
             splits[i].Skybox?.Definition.Name,
-            null))]);
+            null))];
+        List<string> warnings = LevelLibraries.Check(facts);
+
+        // The pack's singletons are the level's by D29: the first library's,
+        // each it lacks entirely taken from the earliest library that has
+        // it. When the first has every one, these are its own list and
+        // options record, and its skybox, so the pack is what it was.
+        LevelLibraries.LevelSingletonChoice level = LevelLibraries.Singletons(facts);
+        int? skyboxSource = level.SkyboxSource;
 
         VmfChunk world = sources[0].Vmf.GetChunk(MapFileLoader.WorldChunk)
             ?? throw new RoomPackSplitException(0, new RoomLibraryException("the library has no world chunk."));
@@ -165,10 +177,12 @@ public static class RoomPackCombiner
             RoomPackSource source = sources[i];
             RoomNamespace space = new(source.Key, splits[i].Options.NameKeySet);
 
-            // The first library's skybox is packed with its rooms, after
-            // them, as ssmap room packs it; every other library's is dropped
-            // with the singletons (its line is among the warnings).
-            IEnumerable<LibraryRoom> own = i == 0 && splits[0].Skybox is { } skybox ? [.. splits[0].Rooms, skybox] : splits[i].Rooms;
+            // The level's skybox (the first library's, or the earliest
+            // library's with one, D29) is packed with its library's rooms,
+            // after them, as ssmap room packs it, so it stays in its own
+            // namespace; every other library's is dropped with the
+            // singletons (its line is among the warnings).
+            IEnumerable<LibraryRoom> own = i == skyboxSource && splits[i].Skybox is { } skybox ? [.. splits[i].Rooms, skybox] : splits[i].Rooms;
             List<LibraryRoom> rooms = [];
             foreach (LibraryRoom room in own)
             {
@@ -183,12 +197,13 @@ public static class RoomPackCombiner
             spaces.Add(new RoomPackSpace(source.Key, source.Source, source.VmfSha256, splits[i].Options.NameKeys, rooms));
         }
 
+        string? skyboxRoom = skyboxSource is int k ? LevelLibraries.Qualified(sources[k].Key, splits[k].Skybox!.Definition.Name) : null;
         return new RoomPackPlan(
             spaces,
-            splits[0].LibraryEntities,
-            splits[0].Options,
-            splits[0].Skybox is { } sky ? LevelLibraries.Qualified(sources[0].Key, sky.Definition.Name) : null,
-            RoomPackNamespaces.SingletonDigest(firstWorld, splits[0].LibraryEntities),
+            level.Entities,
+            level.Options,
+            skyboxRoom,
+            RoomPackNamespaces.SingletonDigest(firstWorld, level.Entities, skyboxSource is > 0 ? skyboxRoom : null),
             warnings);
     }
 

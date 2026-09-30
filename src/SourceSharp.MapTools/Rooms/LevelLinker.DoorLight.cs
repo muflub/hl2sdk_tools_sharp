@@ -94,11 +94,11 @@ public static partial class LevelLinker
     internal static async Task<LevelDoorLight?> PlanDoorLightAsync(
         ResolvedPlacement[] resolved, LevelLight lit, CompileParallelism parallelism, CancellationToken cancellationToken)
     {
-        Dictionary<(int X, int Y), ResolvedPlacement> byCell = new(resolved.Length);
-        foreach (ResolvedPlacement placement in resolved)
-        {
-            byCell[(placement.Instance.Placement.CellX, placement.Instance.Placement.CellY)] = placement;
-        }
+        // The grid's rooms by cell, the skybox below the grid left out: it
+        // shares its cell's column and row, and would otherwise stand in for
+        // the room there as a neighbour (a lit level with a skybox then
+        // looked for a joint's socket on the skybox, which has none).
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell = GridCells(resolved);
 
         // Each receiving placement's joints to a neighbour with door light.
         List<(int Mine, int Placement, int Theirs)>[] joints = new List<(int, int, int)>[resolved.Length];

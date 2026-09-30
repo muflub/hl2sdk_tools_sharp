@@ -204,7 +204,8 @@ public sealed class RoomPackNamespacesTests
 
     /// <summary>
     /// The singleton digest follows the worldspawn's keys (their values and
-    /// their order) and the library-wide entities, and nothing else.
+    /// their order), the library-wide entities and a skybox a later library
+    /// supplies (D29), and nothing else.
     /// </summary>
     [Fact]
     public void TheSingletonDigestFollowsTheWorldAndTheEntities()
@@ -219,6 +220,12 @@ public sealed class RoomPackNamespacesTests
         Assert.NotEqual(digest, RoomPackNamespaces.SingletonDigest([a, b], [RoomLightHarness.Sun("0 60 0")]));
         Assert.NotEqual(digest, RoomPackNamespaces.SingletonDigest([a, b], []));
         Assert.NotEqual(RoomPackNamespaces.SingletonDigest([new("ab", "c")], []), RoomPackNamespaces.SingletonDigest([new("a", "bc")], []));
+
+        // D29: a later library's skybox is folded (its name too); none leaves the digest as it was.
+        Assert.Equal(digest, RoomPackNamespaces.SingletonDigest([a, b], [sun], null));
+        string later = RoomPackNamespaces.SingletonDigest([a, b], [sun], "caves.sky");
+        Assert.NotEqual(digest, later);
+        Assert.NotEqual(later, RoomPackNamespaces.SingletonDigest([a, b], [sun], "halls.sky"));
     }
 
     // ---- helpers -------------------------------------------------------------------------
