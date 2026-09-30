@@ -115,6 +115,7 @@ public static partial class LevelLinker
             VertNormals = lighting is null ? geometry.VertNormals : [.. lighting.VertNormals.Select(n => TurnDirection(n, rotation))],
             FaceVertexStarts = lighting is null ? null : FaceVertexStarts(bsp),
             Overlays = RoomOverlaysOf(room),
+            Water = RoomWaterOf(room),
             AreaPortals = areaPortals,
             AreaLumps = areaPortals is null ? null : RoomAreaPortals.Lumps(room.Definition.Name, bsp),
         };
@@ -609,6 +610,18 @@ public static partial class LevelLinker
         public int LightBaseHdr;
         /// <summary>The room's overlays (<see cref="RoomOverlays"/>), or null for a room with none.</summary>
         public RoomOverlays? Overlays { get; init; }
+
+        /// <summary>The room's water (<see cref="RoomWater"/>), or null for a room with none.</summary>
+        public RoomWater? Water { get; init; }
+
+        /// <summary>
+        /// Per room leaf water data record, the level's (<see cref="PlanWaterData"/>);
+        /// null for a room without water.
+        /// </summary>
+        public int[]? WaterMap;
+
+        /// <summary>How many water overlays every placement before this one has: its water overlay 0's offset from the first id.</summary>
+        public int WaterOverlayBase;
 
         /// <summary>Whether this is the library's skybox room, placed below the grid (<see cref="SkyboxOf"/>).</summary>
         public bool IsSkybox => Placement.Instance.Placement.Level != 0;
