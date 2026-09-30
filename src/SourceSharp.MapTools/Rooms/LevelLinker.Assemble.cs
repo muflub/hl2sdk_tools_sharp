@@ -68,8 +68,13 @@ public static partial class LevelLinker
             InternRoomTables(plans[p], planes, textures, cubemaps?.At(p));
         }
 
+        // The rooms' heights (17.6): null for a level of cubes, whose top tree
+        // and solid leaf are bounded by the cell as they always were.
+        Dictionary<(int X, int Y), float>? heights = CellHeights(
+            plans.Where(p => !p.IsSkybox).Select(p => (p.Placement.Instance.Placement, p.Placement.Room.Definition)));
+        float tallest = TallestRoom(heights, cell);
         List<Plane> topPlanes = [];
-        List<DNode> top = BuildTopNodes(layout, cell, topPlanes);
+        List<DNode> top = BuildTopNodes(layout, cell, topPlanes, heights);
         for (int i = 0; i < top.Count; i++)
         {
             // BuildTopNodes numbered its planes as pairs from 0; each takes
@@ -89,7 +94,7 @@ public static partial class LevelLinker
         int gridRoot = 0;
         if (skybox is not null)
         {
-            top = UnderSkybox(top, planes, layout, cell);
+            top = UnderSkybox(top, planes, layout, cell, tallest);
             gridRoot = 1;
         }
 
@@ -162,7 +167,7 @@ public static partial class LevelLinker
         cancellationToken.ThrowIfCancellationRequested();
 
         // Leafs: the shared solid at index 0 — the void outside every room,
-        // bounded by the grid — then every room's leaves with clusters, leaf
+        // bounded by the grid up to its tallest room — then every room's leaves with clusters, leaf
         // faces, bounds and brush runs rebased. The brush runs are rebuilt
         // rather than copied, because a stripped plug brush leaves every run
         // it was in.
@@ -173,7 +178,7 @@ public static partial class LevelLinker
             Cluster = -1,
             AreaFlags = 0,
             Mins = Short3(new Vec3(minx * cell, miny * cell, skybox is null ? 0 : -cell)),
-            Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell)),
+            Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, tallest)),
             LeafWaterDataId = -1,
         }];
         // Linked brush indices, held as ints until the fold (which may
@@ -790,9 +795,10 @@ public static partial class LevelLinker
     /// the skybox's tree: a room's tree is its sealed compile's, which puts
     /// everything outside the room's shell in solid leaves, as the grid's
     /// single-cell nodes rely on for the space above and below a cell. The
-    /// root bounds the grid and the skybox's cell below it.
+    /// root bounds the grid, up to its tallest room (<paramref name="tallest"/>),
+    /// and the skybox's cell below it.
     /// </remarks>
-    private static List<DNode> UnderSkybox(List<DNode> top, LinkPlanes planes, LevelLayout layout, float cell)
+    private static List<DNode> UnderSkybox(List<DNode> top, LinkPlanes planes, LevelLayout layout, float cell, float tallest)
     {
         (int minx, int miny, int maxx, int maxy) = Extent(layout);
         (int even, bool flipped) = planes.Intern(new Vec3(0, 0, 1), 0);
@@ -806,7 +812,7 @@ public static partial class LevelLinker
                 PlaneNum = even,
                 Children = Orient(children, flipped),
                 Mins = Short3(new Vec3(minx * cell, miny * cell, -cell)),
-                Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell)),
+                Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, tallest)),
                 Area = -1,
             },
         ];

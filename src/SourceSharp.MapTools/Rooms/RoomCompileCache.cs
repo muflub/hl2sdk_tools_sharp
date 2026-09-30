@@ -96,7 +96,8 @@ public sealed record RoomCacheInputs(VbspOptions Options)
 /// room-local document (the library's <c>versioninfo</c> and worldspawn
 /// keys less the library-only ones, its own world brushes and entities,
 /// moved to its cell) written back out with the VMF writer, and its
-/// <c>info_room</c> claims (name, cell, door kit, sockets, role). Parsing
+/// <c>info_room</c> claims (name, cell, door kit, sockets, role, and a shaped
+/// room's height). Parsing
 /// and writing again drops what the compile never sees (whitespace, comments,
 /// Hammer's view and camera chunks), and another room's brushes and
 /// entities are simply not in the document, so an edit to another room, or a
@@ -176,6 +177,15 @@ public static class RoomCacheKey
         }
 
         fold.Int((int)room.Role);
+
+        // A room's own height (17.6), folded only for a shaped room, so a
+        // cube room keeps the key, and the cache row, it always had.
+        if (definition.IsShaped)
+        {
+            fold.Text("height");
+            fold.Float(definition.Height);
+        }
+
         return fold.Finish();
     }
 

@@ -92,7 +92,8 @@ public sealed class RoomLibraryException : Exception
 /// <list type="table">
 /// <listheader><term>key</term><description>meaning</description></listheader>
 /// <item><term><c>name</c></term><description>The room's name (<see cref="RoomNames"/>): its entry in the room pack and what a level calls it.</description></item>
-/// <item><term><c>cell_size</c></term><description>The cell's edge, in units; the cell is a cube.</description></item>
+/// <item><term><c>cell_size</c></term><description>The cell's edge, in units: the grid every room of the library stands on, and the cube a room fills unless it gives its own height.</description></item>
+/// <item><term><c>room_height</c></term><description>Optional: the room's own height, in whole units, the cell size by default (<see cref="RoomDefinition.Height"/>). The room's box is then <c>[0, c] × [0, c] × [0, room_height]</c>; its doors stay where a cube room's are.</description></item>
 /// <item><term><c>door_width</c></term><description>The door opening's width along its wall.</description></item>
 /// <item><term><c>door_height</c></term><description>The door opening's height.</description></item>
 /// <item><term><c>wall_depth</c></term><description>The shell's thickness, which is also how deep a door plug reaches in from the cell face.</description></item>
@@ -168,6 +169,13 @@ public static class RoomLibraryVmf
 
     /// <summary>The shell's thickness and the plug's depth.</summary>
     public const string WallDepthKey = "wall_depth";
+
+    /// <summary>
+    /// The room's own height, optional: the cell size when absent (the rooms
+    /// design, 17.6). Not compared between rooms or libraries: rooms of one
+    /// library, and of the libraries of one level, may differ in height.
+    /// </summary>
+    public const string RoomHeightKey = "room_height";
 
     /// <summary>The prefix of the optional socket-name keys: <c>socket_east</c> and so on.</summary>
     public const string SocketKeyPrefix = "socket_";
@@ -344,7 +352,7 @@ public static class RoomLibraryVmf
                 document.Chunks.Add(VmfPlacement.MoveEntity(entity, home));
             }
 
-            RoomDefinition definition = new(marker.Name, marker.CellSize, marker.Kit, Sockets(marker, localSolids));
+            RoomDefinition definition = new(marker.Name, marker.CellSize, marker.Kit, Sockets(marker, localSolids)) { Height = marker.Height };
             definition.Validate();
 
             // An overlay on a socket's plug (the rooms design, 4.9): refused
@@ -681,7 +689,37 @@ public static class RoomLibraryVmf
             throw new RoomLibraryException($"{who}: {exception.Message}");
         }
 
-        return new Marker(name, corner, cell, kit, socketNames) { Role = role };
+        return new Marker(name, corner, cell, kit, socketNames) { Role = role, Height = Height(entity, name, cell, kit) };
+    }
+
+    /// <summary>
+    /// A room's <c>room_height</c>: the cell size without the key, else a
+    /// whole number of units the door fits in and the engine's coordinates
+    /// hold (<see cref="RoomDefinition.HeightProblem"/>), refused with the
+    /// rooms design's 17.3 texts.
+    /// </summary>
+    /// <remarks>
+    /// The text is read as a number first, so <c>"tall"</c> and <c>"300.5"</c>
+    /// are both "not a whole number of units", quoting what the author wrote;
+    /// the other two rules name the number. A key equal to the cell size is
+    /// a cube, the same room as one without the key.
+    /// </remarks>
+    private static float Height(VmfChunk entity, string room, float cell, SocketKit kit)
+    {
+        if (entity.GetValue(RoomHeightKey) is not { } text)
+        {
+            return cell;
+        }
+
+        if (!float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float height)
+            || !float.IsFinite(height) || height != MathF.Floor(height))
+        {
+            throw new RoomLibraryException($"room {room}: {RoomHeightKey} \"{text}\" is not a whole number of units.");
+        }
+
+        return RoomDefinition.HeightProblem(height, kit) is { } problem
+            ? throw new RoomLibraryException($"room {room}: {RoomHeightKey} {problem}")
+            : height;
     }
 
     private static float Positive(VmfChunk entity, string key, string who)
@@ -732,7 +770,15 @@ public static class RoomLibraryVmf
     /// <summary>One <c>info_room</c>, read.</summary>
     private sealed record Marker(string Name, Vec3 Corner, float CellSize, SocketKit Kit, Dictionary<string, string> SocketNames)
     {
-        public Box Cell => new(Corner, Corner + new Vec3(CellSize, CellSize, CellSize));
+        /// <summary>
+        /// The room's box in the library: the cell's footprint, as tall as the
+        /// room (17.6), so a tall room may not overlap the room built above it,
+        /// and a brush above a low room's ceiling belongs to no room.
+        /// </summary>
+        public Box Cell => new(Corner, Corner + new Vec3(CellSize, CellSize, Height));
+
+        /// <summary>The room's height: the cell size unless its <c>room_height</c> says otherwise.</summary>
+        public float Height { get; init; } = CellSize;
 
         public RoomRole Role { get; init; }
     }
