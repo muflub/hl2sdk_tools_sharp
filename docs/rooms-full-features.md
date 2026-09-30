@@ -4502,7 +4502,8 @@ fifteen warm links is 48 to 68 ms with either storage, the same within the
 noise, and 45 to 62 ms for the same level without displacements; a count
 of 1 is read and linked to the same bytes (a fact).
 
-Measured against main (the merge base, with PR 14 and PR 19), the whole
+Measured against main (the merge base, with PR 14, PR 19, the skybox bake,
+the empty-room refusal and PR 21), the whole
 `ssmap` process on a busy 4-core machine: `ssmap vbsp` on 2fort (as
 `c.vmf`) gives `a491f59df3b484dc`, vrad on 2fort's vis'd map the same
 bytes at 4 threads and 1 (`13dd86de1bde7eb2`), and `ssmap all` on 2fort and
@@ -4514,7 +4515,7 @@ main's packs, is main's map and `.nav3d` byte for byte, and so is the
 stress library's 33 x 33 level, unlit and lit (linked from this build's own
 packs too), each passing `ssmap check` with its one warning (no cubemap
 sample); the 33 x 33 level links in the same time within the noise (unlit
-1.6 to 1.7 s against 2.1 to 2.2 s, lit 3.2 to 4.1 s against 3.4 to 4.1 s,
+1.7 to 1.9 s against 1.7 to 2.2 s, lit 3.5 to 3.6 s against 3.7 to 4.4 s,
 three runs each, not interleaved). Through the CLI (`ssmap room` lighting
 as it does by default, `ssmap link` from the pack alone, `ssmap check`,
 `--flatten` compiled whole) a level of the patched rooms at mixed turns
