@@ -168,7 +168,7 @@ public sealed class LevelYamlTests
     [InlineData("rows: 1\n---\nrows: 2\n", 3, 1, "a level file holds one YAML document")]
     [InlineData("- a\n", 1, 1, "a level is a mapping of library, rows, columns and grid")]
     [InlineData("size: 3\n", 1, 1, "unknown key \"size\"")]
-    [InlineData("rows: 1\n", 1, 1, "the level has no library, columns, grid")]
+    [InlineData("rows: 1\n", 1, 1, "the level has no library or libraries, columns, grid")]
     [InlineData("library: \"\"\nrows: 1\ncolumns: 1\ngrid: [[a]]\n", 1, 10, "library is empty")]
     [InlineData("library: [a]\nrows: 1\ncolumns: 1\ngrid: [[a]]\n", 1, 10, "library is a single value, not a sequence")]
     [InlineData("library: l\nrows: {a: 1}\ncolumns: 1\ngrid: [[a]]\n", 2, 7, "rows is a single value, not a mapping")]

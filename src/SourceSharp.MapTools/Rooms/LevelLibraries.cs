@@ -285,13 +285,13 @@ public static class LevelLibraries
                 return cell;
             }
 
-            // Bare only when one library has it, no alias of the level is
-            // spelt so, and it would not read as another library's
-            // qualified name.
+            // Bare only when one library has it and it would not read as a
+            // qualified name (a room named after its own library's key and a
+            // dot; the dotted-name guard refuses every other library's). An
+            // alias never hides a room, so a bare name is never an alias.
             bool unique = sets.Count(s => s.Contains(room)) == 1;
             bool readsQualified = TrySplit(room, out string prefix, out _) && keys.Contains(prefix);
-            bool isAlias = resolved.Aliases.Any(a => a.Name == room);
-            return unique && !readsQualified && !isAlias ? cell with { Room = room } : cell;
+            return unique && !readsQualified ? cell with { Room = room } : cell;
         })];
         return resolved.WithCells(cells);
     }
@@ -358,8 +358,8 @@ public static class LevelLibraries
 
         List<string> warnings = Check(facts);
 
-        // D26: a sunlit room baked under a sun the level drops. A warning
-        // until the door light lands; then a refusal.
+        // D26: a sunlit room baked under a sun the level drops, one line per
+        // library naming its first such room in link order.
         for (int b = 1; b < keys.Count; b++)
         {
             if (SunDifference(facts[0].Entities, facts[b].Entities) is null)
@@ -372,9 +372,7 @@ public static class LevelLibraries
                 if (SourceIndex(index, cell.Room) == b
                     && libraries[b].Get(RoomOf(cell.Room)).LightingOfCompile is { RotationCount: 4 })
                 {
-                    warnings.Add(
-                        $"library {keys[b].Key}: room {cell.Room} was baked under library {keys[b].Key}'s sun, and the level takes library {keys[0].Key}'s;"
-                        + " it links as baked. Build the libraries with one sun.");
+                    warnings.Add(SunLine(RefusesDroppedSun, keys[b].Key, cell.Room, keys[0].Key));
                     break;
                 }
             }
@@ -446,6 +444,35 @@ public static class LevelLibraries
 
         return Check([.. keys.Select((k, i) => FactsOf(k, libraries[i], splits[i], placed[i]))]);
     }
+
+    /// <summary>
+    /// Whether a sunlit room baked under a sun the level drops is refused
+    /// rather than warned of (the rooms design's D26). The owner's rule is to
+    /// refuse it once the door light (PR 10) lands, since the door terms then
+    /// carry that wrong sun into the room's neighbours too; until then the
+    /// link warns and links the room as baked. The one switch: when the door
+    /// light is on main, this returns true.
+    /// </summary>
+    internal static bool RefusesDroppedSun => false;
+
+    /// <summary>
+    /// D26's line for a library whose sunlit room was baked under its own sun
+    /// where the level takes the first library's: the warning, or with
+    /// <paramref name="refuse"/> the refusal.
+    /// </summary>
+    /// <param name="refuse">Whether the case is refused (<see cref="RefusesDroppedSun"/>).</param>
+    /// <param name="library">The later library's key.</param>
+    /// <param name="room">Its first such room in link order, qualified.</param>
+    /// <param name="first">The first library's key.</param>
+    /// <returns>The warning.</returns>
+    /// <exception cref="LinkException">When <paramref name="refuse"/> is set.</exception>
+    internal static string SunLine(bool refuse, string library, string room, string first) =>
+        refuse
+            ? throw new LinkException(
+                $"library {library}: room {room} was baked under library {library}'s sun, but the level takes library {first}'s;"
+                + " a sunlit room links only under the sun it was baked with. Build the libraries with one sun.")
+            : $"library {library}: room {room} was baked under library {library}'s sun, and the level takes library {first}'s;"
+                + " it links as baked. Build the libraries with one sun.";
 
     /// <summary>
     /// What the compatibility check and the singleton rule read of one
